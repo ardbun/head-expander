@@ -29,5 +29,3 @@ task.spawn(function()
         task.wait(0.5)
     end
 end)
-
-print("Zombie heads set to", headSize)
