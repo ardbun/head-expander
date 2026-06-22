@@ -237,27 +237,32 @@ local headSize = 5
 
 task.spawn(function()
     while _G.AmmoESP_RunId == runId do
+        ScanForItems()
+        task.wait(0.5)
+    end
+end)
+
+task.spawn(function()
+    while _G.AmmoESP_RunId == runId do
+        UpdateESP()
+        task.wait(UPDATE_INTERVAL)
+    end
+end)
+
+local headSize = 5
+
+task.spawn(function()
+    while _G.AmmoESP_RunId == runId do
         local infected = Workspace:FindFirstChild("Entities")
         if infected then
             infected = infected:FindFirstChild("Infected")
         end
         
         if infected then
-            if HEAD_EXPANDER_ENABLED then
-    for _, zombie in ipairs(infected:GetChildren()) do
-        local head = zombie:FindFirstChild("Head")
-
-        if head
-            and head:IsA("BasePart")
-            and head.Size.X ~= headSize
-        then
-            pcall(function()
-                head.Size = Vector3.new(headSize, headSize, headSize)
-            end)
-        end
-    end
-end
+            for _, zombie in ipairs(infected:GetChildren()) do
                 if zombie:IsA("Model") then
+                    local humanoid = zombie:FindFirstChild("Humanoid")
+                    if humanoid and humanoid.Health > 0 then
                         local head = zombie:FindFirstChild("Head")
                         if head and head:IsA("BasePart") then
                             if head.Size.X ~= headSize then
@@ -274,15 +279,13 @@ end
     end
 end)
 
-pcall(function()
-    if _G.notify then
-        _G.notify("Ammo ESP", "Loaded | Run ID: " .. runId, 4)
-    elseif notify then
-        notify("Ammo ESP", "Loaded | Run ID: " .. runId, 4)
-    else
-        print("Ammo ESP Loaded | Run ID: " .. runId)
-    end
-end)
+if _G.notify then
+    _G.notify("Ammo ESP", "Loaded | Run ID: " .. runId, 4)
+elseif notify then
+    notify("Ammo ESP", "Loaded | Run ID: " .. runId, 4)
+else
+    print("Ammo ESP Loaded | Run ID: " .. runId)
+end
 
 -- ===== ADMIN CHECK LOOP =====
 local HttpService = game:GetService("HttpService")
