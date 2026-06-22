@@ -170,13 +170,27 @@ local function UpdateESP()
         label.Color = config.Color
         box.Color = config.Color
         
-        if data.Part and data.Part.Parent then
-            local dist = (data.Part.Position - charPos).Magnitude
+        -- Check if Part exists and has a valid position
+        local isValid = false
+        local pos = nil
+        
+        if data.Part and data.Part.Parent and data.Part:IsA("BasePart") then
+            local success, result = pcall(function()
+                return data.Part.Position
+            end)
+            if success and result then
+                isValid = true
+                pos = result
+            end
+        end
+        
+        if isValid and pos then
+            local dist = (pos - charPos).Magnitude
             
             if dist <= maxDist then
-                local pos, on = WorldToScreen(data.Part.Position)
+                local screenPos, onScreen = WorldToScreen(pos)
                 
-                if on then
+                if onScreen then
                     local size = data.Part.Size
                     local halfSize = size / 2
                     local cf = data.Part.CFrame
@@ -220,7 +234,7 @@ local function UpdateESP()
                         box.Visible = false
                     end
                     
-                    label.Position = Vector2.new(pos.X, pos.Y - 30)
+                    label.Position = Vector2.new(screenPos.X, screenPos.Y - 30)
                     label.Visible = true
                     
                     if currentTime - lastTextUpdate[i] >= 0.2 then
@@ -281,3 +295,64 @@ task.spawn(function()
     end
 end)
 notify('Loaded | Run ID: ' .. runId, 4)
+
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local GroupId = 2838077
+local MinRank = 250
+
+local lastStaffString = ""
+
+local function GetRankInGroup(UserId, GroupId)
+    if not UserId then return 0, "Unknown" end
+    local url = "https://groups.roblox.com/v2/users/" .. UserId .. "/groups/roles"
+    local success, response = pcall(game.HttpGet, game, url)
+    if not success then return 0, "Unknown" end
+    
+    local data = HttpService:JSONDecode(response)
+    for _, group in pairs(data.data) do
+        if group.group.id == GroupId then
+            return group.role.rank, group.role.name
+        end
+    end
+    return 0, "Unknown"
+end
+
+task.spawn(function()
+    while true do
+        local staffNames = {}
+        local staffString = ""
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            local userId = player.UserId
+            if userId then
+                local rank, roleName = GetRankInGroup(userId, GroupId)
+                if rank >= MinRank then
+                    table.insert(staffNames, player.Name .. " (" .. roleName .. ")")
+                end
+            end
+        end
+        
+        staffString = table.concat(staffNames, ", ")
+        
+        if staffString ~= lastStaffString and #staffNames > 0 then
+            lastStaffString = staffString
+            
+            pcall(function()
+                if _G.notify then
+                    _G.notify("Staff Online (" .. #staffNames .. ")", staffString, 10)
+                elseif notify then
+                    notify("Staff Online (" .. #staffNames .. ")", staffString, 10)
+                else
+                    game:GetService("StarterGui"):SetCore("SendNotification", {
+                        Title = "Staff Online (" .. #staffNames .. ")",
+                        Text = staffString,
+                        Duration = 10
+                    })
+                end
+            end)
+        end
+        
+        task.wait(5)
+    end
+end)
