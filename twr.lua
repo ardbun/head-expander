@@ -7,6 +7,7 @@ local WorldToScreen = WorldToScreen
 
 _G.AmmoESP_RunId = (_G.AmmoESP_RunId or 0) + 1
 local runId = _G.AmmoESP_RunId
+
 if _G.AmmoESP_Labels then
     for _, label in ipairs(_G.AmmoESP_Labels) do
         pcall(function()
@@ -32,6 +33,12 @@ local BOX_THICKNESS = 2
 local MAX_VISIBLE = 6
 local MAX_DISTANCE = 80
 
+-- Precomputed corner signs
+local cornerSigns = {
+    {-1,-1,-1}, {1,-1,-1}, {1,1,-1}, {-1,1,-1},
+    {-1,-1, 1}, {1,-1, 1}, {1,1, 1}, {-1,1, 1}
+}
+
 local ITEM_CONFIG = {
     Ammo = {
         Color = Color3.fromRGB(0, 180, 0),
@@ -51,6 +58,7 @@ local ammoItems = {}
 local labels = {}
 local boxes = {}
 local lastTextUpdate = {}
+local lastBoxUpdate = {}
 
 local function GetCharacterPosition()
     local char = LocalPlayer.Character
@@ -69,7 +77,6 @@ local function CreateLabel(color)
     label.Outline = true
     label.Color = color
     label.Visible = false
-    
     table.insert(_G.AmmoESP_Labels, label)
     return label
 end
@@ -80,7 +87,6 @@ local function CreateBox(color)
     box.Filled = false
     box.Color = color
     box.Visible = false
-    
     table.insert(_G.AmmoESP_Boxes, box)
     return box
 end
@@ -91,6 +97,7 @@ local function GetLabel(i)
         labels[i] = CreateLabel(config.Color)
         boxes[i] = CreateBox(config.Color)
         lastTextUpdate[i] = 0
+        lastBoxUpdate[i] = 0
     end
     return labels[i]
 end
@@ -162,7 +169,15 @@ local function UpdateESP()
     if not cam then return end
     
     local currentTime = tick()
-    local visibleItems = {}
+    
+    -- Reuse arrays to avoid GC spikes
+    local visibleCount = 0
+    local visibleIndices = {}
+    local visibleDists = {}
+    local visibleScreenPos = {}
+    local visibleData = {}
+    local visibleLabels = {}
+    local visibleBoxes = {}
     
     for i, data in ipairs(ammoItems) do
         local config = ITEM_CONFIG[data.Type] or ITEM_CONFIG.Ammo
@@ -170,38 +185,21 @@ local function UpdateESP()
         local box = GetBox(i)
         local maxDist = config.MaxDistance
         
-        label.Color = config.Color
-        box.Color = config.Color
-        
-        local isValid = false
-        local pos = nil
-        
-        if data.Part and data.Part.Parent and data.Part:IsA("BasePart") then
-            local success, result = pcall(function()
-                return data.Part.Position
-            end)
-            if success and result then
-                isValid = true
-                pos = result
-            end
-        end
-        
-        if isValid and pos then
+        local part = data.Part
+        if part and part.Parent and part:IsA("BasePart") then
+            local pos = part.Position
             local dist = (pos - charPos).Magnitude
             
             if dist <= maxDist then
                 local screenPos, onScreen = WorldToScreen(pos)
-                
                 if onScreen then
-                    table.insert(visibleItems, {
-                        index = i,
-                        data = data,
-                        label = label,
-                        box = box,
-                        dist = dist,
-                        screenPos = screenPos,
-                        pos = pos
-                    })
+                    visibleCount = visibleCount + 1
+                    visibleIndices[visibleCount] = i
+                    visibleDists[visibleCount] = dist
+                    visibleScreenPos[visibleCount] = screenPos
+                    visibleData[visibleCount] = data
+                    visibleLabels[visibleCount] = label
+                    visibleBoxes[visibleCount] = box
                 else
                     label.Visible = false
                     box.Visible = false
@@ -216,58 +214,61 @@ local function UpdateESP()
         end
     end
     
-    table.sort(visibleItems, function(a, b)
-        return a.dist < b.dist
-    end)
+    -- Selection sort for closest items (no table allocation)
+    local showCount = math.min(visibleCount, MAX_VISIBLE)
+    for i = 1, showCount do
+        local bestIdx = i
+        local bestDist = visibleDists[i]
+        for j = i + 1, visibleCount do
+            if visibleDists[j] < bestDist then
+                bestDist = visibleDists[j]
+                bestIdx = j
+            end
+        end
+        if bestIdx ~= i then
+            visibleIndices[i], visibleIndices[bestIdx] = visibleIndices[bestIdx], visibleIndices[i]
+            visibleDists[i], visibleDists[bestIdx] = visibleDists[bestIdx], visibleDists[i]
+            visibleScreenPos[i], visibleScreenPos[bestIdx] = visibleScreenPos[bestIdx], visibleScreenPos[i]
+            visibleData[i], visibleData[bestIdx] = visibleData[bestIdx], visibleData[i]
+            visibleLabels[i], visibleLabels[bestIdx] = visibleLabels[bestIdx], visibleLabels[i]
+            visibleBoxes[i], visibleBoxes[bestIdx] = visibleBoxes[bestIdx], visibleBoxes[i]
+        end
+    end
     
-    local showCount = math.min(#visibleItems, MAX_VISIBLE)
-    
+    -- Render closest items
     for idx = 1, showCount do
-        local item = visibleItems[idx]
-        local i = item.index
-        local data = item.data
-        local label = item.label
-        local box = item.box
-        local dist = item.dist
-        local screenPos = item.screenPos
-        local pos = item.pos
+        local i = visibleIndices[idx]
+        local data = visibleData[idx]
+        local label = visibleLabels[idx]
+        local box = visibleBoxes[idx]
+        local dist = visibleDists[idx]
+        local screenPos = visibleScreenPos[idx]
         
+        -- BOX: Update every frame (smooth)
         local size = data.Part.Size
-        local halfSize = size / 2
+        local halfX = size.X / 2
+        local halfY = size.Y / 2
+        local halfZ = size.Z / 2
         local cf = data.Part.CFrame
         
-        local corners = {
-            cf * Vector3.new(-halfSize.X, -halfSize.Y, -halfSize.Z),
-            cf * Vector3.new( halfSize.X, -halfSize.Y, -halfSize.Z),
-            cf * Vector3.new( halfSize.X,  halfSize.Y, -halfSize.Z),
-            cf * Vector3.new(-halfSize.X,  halfSize.Y, -halfSize.Z),
-            cf * Vector3.new(-halfSize.X, -halfSize.Y,  halfSize.Z),
-            cf * Vector3.new( halfSize.X, -halfSize.Y,  halfSize.Z),
-            cf * Vector3.new( halfSize.X,  halfSize.Y,  halfSize.Z),
-            cf * Vector3.new(-halfSize.X,  halfSize.Y,  halfSize.Z)
-        }
-        
-        local screenCorners = {}
+        local minX, minY = math.huge, math.huge
+        local maxX, maxY = -math.huge, -math.huge
         local allOnScreen = true
-        for j, corner in ipairs(corners) do
-            local screenPos2, onScreen2 = WorldToScreen(corner)
-            if not onScreen2 then
+        
+        for _, sign in ipairs(cornerSigns) do
+            local corner = cf * Vector3.new(sign[1] * halfX, sign[2] * halfY, sign[3] * halfZ)
+            local sc, on = WorldToScreen(corner)
+            if not on then
                 allOnScreen = false
                 break
             end
-            screenCorners[j] = screenPos2
+            if sc.X < minX then minX = sc.X end
+            if sc.Y < minY then minY = sc.Y end
+            if sc.X > maxX then maxX = sc.X end
+            if sc.Y > maxY then maxY = sc.Y end
         end
         
         if allOnScreen then
-            local minX, minY = math.huge, math.huge
-            local maxX, maxY = -math.huge, -math.huge
-            for _, sc in ipairs(screenCorners) do
-                if sc.X < minX then minX = sc.X end
-                if sc.Y < minY then minY = sc.Y end
-                if sc.X > maxX then maxX = sc.X end
-                if sc.Y > maxY then maxY = sc.Y end
-            end
-            
             box.Position = Vector2.new(minX, minY)
             box.Size = Vector2.new(maxX - minX, maxY - minY)
             box.Visible = true
@@ -275,25 +276,30 @@ local function UpdateESP()
             box.Visible = false
         end
         
+        -- LABEL: Position updates every frame (smooth)
         label.Position = Vector2.new(screenPos.X, screenPos.Y - 30)
         label.Visible = true
         
-        if currentTime - lastTextUpdate[i] >= 0.2 then
+        -- TEXT: Updates only every 0.8 seconds (much less often)
+        if currentTime - lastTextUpdate[i] >= 0.8 then
             label.Text = tostring(math.floor(dist)) .. "m"
             lastTextUpdate[i] = currentTime
         end
     end
     
-    for idx = showCount + 1, #visibleItems do
-        visibleItems[idx].label.Visible = false
-        visibleItems[idx].box.Visible = false
+    -- Hide extra items
+    for idx = showCount + 1, visibleCount do
+        if visibleLabels[idx] then
+            visibleLabels[idx].Visible = false
+            visibleBoxes[idx].Visible = false
+        end
     end
 end
 
 task.spawn(function()
     while _G.AmmoESP_RunId == runId do
         ScanForItems()
-        task.wait(0.36)
+        task.wait(0.5)
     end
 end)
 
