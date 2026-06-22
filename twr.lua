@@ -24,6 +24,7 @@ local TEXT_COLOR = Color3.fromRGB(0, 180, 0)
 
 local ammoItems = {}
 local labels = {}
+local lastTextUpdate = {}
 
 local function GetCharacterPosition()
     local char = LocalPlayer.Character
@@ -50,6 +51,7 @@ end
 local function GetLabel(i)
     if not labels[i] then
         labels[i] = CreateLabel()
+        lastTextUpdate[i] = 0
     end
     return labels[i]
 end
@@ -97,17 +99,26 @@ local function UpdateESP()
     local cam = Workspace.CurrentCamera
     if not cam then return end
     
+    local currentTime = tick()
+    
     for i, data in ipairs(ammoItems) do
         local label = GetLabel(i)
         
         if data.Part and data.Part.Parent then
             local dist = (data.Part.Position - charPos).Magnitude
+            
             if dist <= MAX_DISTANCE then
                 local pos, on = WorldToScreen(data.Part.Position)
+                
                 if on then
                     label.Position = Vector2.new(pos.X, pos.Y - 20)
-                    label.Text = tostring(math.floor(dist)) .. "m"
                     label.Visible = true
+                    
+                    -- Text updates only every 0.2 seconds (expensive)
+                    if currentTime - lastTextUpdate[i] >= 0.2 then
+                        label.Text = tostring(math.floor(dist)) .. "m"
+                        lastTextUpdate[i] = currentTime
+                    end
                 else
                     label.Visible = false
                 end
@@ -130,7 +141,7 @@ end)
 task.spawn(function()
     while _G.AmmoESP_RunId == runId do
         UpdateESP()
-        task.wait(0.035)
+        task.wait(0.02)
     end
 end)
 
