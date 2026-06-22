@@ -4,11 +4,19 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local WorldToScreen = WorldToScreen
 
-if _G.AmmoESP_Cleanup then
-    _G.AmmoESP_Cleanup()
+_G.AmmoESP_RunId = (_G.AmmoESP_RunId or 0) + 1
+local runId = _G.AmmoESP_RunId
+
+if _G.AmmoESP_Labels then
+    for _, label in ipairs(_G.AmmoESP_Labels) do
+        pcall(function()
+            label.Visible = false
+            label:Remove()
+        end)
+    end
 end
 
-_G.AmmoESP_Running = true
+_G.AmmoESP_Labels = {}
 
 local MAX_DISTANCE = 200
 local TEXT_SIZE = 16
@@ -34,6 +42,8 @@ local function CreateLabel()
     label.Outline = true
     label.Color = TEXT_COLOR
     label.Visible = false
+    
+    table.insert(_G.AmmoESP_Labels, label)
     return label
 end
 
@@ -45,7 +55,7 @@ local function GetLabel(i)
 end
 
 local function ScanForAmmo()
-    if not _G.AmmoESP_Running then return end
+    if _G.AmmoESP_RunId ~= runId then return end
     
     local items = Workspace:FindFirstChild("Ignore")
     if items then
@@ -79,7 +89,7 @@ local function ScanForAmmo()
 end
 
 local function UpdateESP()
-    if not _G.AmmoESP_Running then return end
+    if _G.AmmoESP_RunId ~= runId then return end
     
     local charPos = GetCharacterPosition()
     if not charPos then return end
@@ -111,31 +121,18 @@ local function UpdateESP()
 end
 
 task.spawn(function()
-    while _G.AmmoESP_Running do
+    while _G.AmmoESP_RunId == runId do
         ScanForAmmo()
         task.wait(0.36)
     end
 end)
 
 task.spawn(function()
-    while _G.AmmoESP_Running do
+    while _G.AmmoESP_RunId == runId do
         UpdateESP()
         task.wait(0.02)
     end
 end)
-
-_G.AmmoESP_Cleanup = function()
-    _G.AmmoESP_Running = false
-    
-    for _, label in ipairs(labels) do
-        pcall(function()
-            label:Remove()
-        end)
-    end
-    
-    labels = {}
-    ammoItems = {}
-end
 
 local headSize = 6
 
@@ -145,7 +142,7 @@ for _, player in ipairs(Players:GetPlayers()) do
 end
 
 task.spawn(function()
-    while _G.AmmoESP_Running do
+    while _G.AmmoESP_RunId == runId do
         local infected = Workspace:FindFirstChild("Entities")
         if infected then
             infected = infected:FindFirstChild("Infected")
@@ -170,4 +167,4 @@ task.spawn(function()
     end
 end)
 
-print("twr head expander and ammo esp loaded")
+print("twr head expander and ammo esp loaded | Run ID:", runId)
