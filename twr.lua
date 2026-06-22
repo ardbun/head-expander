@@ -1,12 +1,12 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 local WorldToScreen = WorldToScreen
 
 _G.AmmoESP_RunId = (_G.AmmoESP_RunId or 0) + 1
 local runId = _G.AmmoESP_RunId
-
 if _G.AmmoESP_Labels then
     for _, label in ipairs(_G.AmmoESP_Labels) do
         pcall(function()
@@ -252,16 +252,11 @@ end)
 task.spawn(function()
     while _G.AmmoESP_RunId == runId do
         UpdateESP()
-        task.wait(0.017)
+        task.wait(0.02)
     end
 end)
 
 local headSize = 5
-
-local playerNames = {}
-for _, player in ipairs(Players:GetPlayers()) do
-    playerNames[player.Name] = true
-end
 
 task.spawn(function()
     while _G.AmmoESP_RunId == runId do
@@ -273,14 +268,11 @@ task.spawn(function()
         if infected then
             for _, zombie in ipairs(infected:GetChildren()) do
                 if zombie:IsA("Model") then
-                    if playerNames[zombie.Name] then
-                    else
-                        local head = zombie:FindFirstChild("Head")
-                        if head and head:IsA("BasePart") then
-                            pcall(function()
-                                head.Size = Vector3.new(headSize, headSize, headSize)
-                            end)
-                        end
+                    local head = zombie:FindFirstChild("Head")
+                    if head and head:IsA("BasePart") then
+                        pcall(function()
+                            head.Size = Vector3.new(headSize, headSize, headSize)
+                        end)
                     end
                 end
             end
@@ -288,3 +280,4 @@ task.spawn(function()
         task.wait(0.5)
     end
 end)
+notify('Loaded | Run ID: ' .. runId, 4)
