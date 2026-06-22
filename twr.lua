@@ -29,19 +29,21 @@ _G.AmmoESP_Boxes = {}
 
 local TEXT_SIZE = 16
 local BOX_THICKNESS = 2
+local MAX_VISIBLE = 6
+local MAX_DISTANCE = 80
 
 local ITEM_CONFIG = {
     Ammo = {
         Color = Color3.fromRGB(0, 180, 0),
-        MaxDistance = 170
+        MaxDistance = MAX_DISTANCE
     },
     Medkit = {
         Color = Color3.fromRGB(180, 0, 0),
-        MaxDistance = 130
+        MaxDistance = MAX_DISTANCE
     },
     Bandages = {
         Color = Color3.fromRGB(222, 204, 168),
-        MaxDistance = 130
+        MaxDistance = MAX_DISTANCE
     }
 }
 
@@ -160,6 +162,7 @@ local function UpdateESP()
     if not cam then return end
     
     local currentTime = tick()
+    local visibleItems = {}
     
     for i, data in ipairs(ammoItems) do
         local config = ITEM_CONFIG[data.Type] or ITEM_CONFIG.Ammo
@@ -170,7 +173,6 @@ local function UpdateESP()
         label.Color = config.Color
         box.Color = config.Color
         
-        -- Check if Part exists and has a valid position
         local isValid = false
         local pos = nil
         
@@ -191,56 +193,15 @@ local function UpdateESP()
                 local screenPos, onScreen = WorldToScreen(pos)
                 
                 if onScreen then
-                    local size = data.Part.Size
-                    local halfSize = size / 2
-                    local cf = data.Part.CFrame
-                    
-                    local corners = {
-                        cf * Vector3.new(-halfSize.X, -halfSize.Y, -halfSize.Z),
-                        cf * Vector3.new( halfSize.X, -halfSize.Y, -halfSize.Z),
-                        cf * Vector3.new( halfSize.X,  halfSize.Y, -halfSize.Z),
-                        cf * Vector3.new(-halfSize.X,  halfSize.Y, -halfSize.Z),
-                        cf * Vector3.new(-halfSize.X, -halfSize.Y,  halfSize.Z),
-                        cf * Vector3.new( halfSize.X, -halfSize.Y,  halfSize.Z),
-                        cf * Vector3.new( halfSize.X,  halfSize.Y,  halfSize.Z),
-                        cf * Vector3.new(-halfSize.X,  halfSize.Y,  halfSize.Z)
-                    }
-                    
-                    local screenCorners = {}
-                    local allOnScreen = true
-                    for j, corner in ipairs(corners) do
-                        local screenPos, onScreen = WorldToScreen(corner)
-                        if not onScreen then
-                            allOnScreen = false
-                            break
-                        end
-                        screenCorners[j] = screenPos
-                    end
-                    
-                    if allOnScreen then
-                        local minX, minY = math.huge, math.huge
-                        local maxX, maxY = -math.huge, -math.huge
-                        for _, sc in ipairs(screenCorners) do
-                            if sc.X < minX then minX = sc.X end
-                            if sc.Y < minY then minY = sc.Y end
-                            if sc.X > maxX then maxX = sc.X end
-                            if sc.Y > maxY then maxY = sc.Y end
-                        end
-                        
-                        box.Position = Vector2.new(minX, minY)
-                        box.Size = Vector2.new(maxX - minX, maxY - minY)
-                        box.Visible = true
-                    else
-                        box.Visible = false
-                    end
-                    
-                    label.Position = Vector2.new(screenPos.X, screenPos.Y - 30)
-                    label.Visible = true
-                    
-                    if currentTime - lastTextUpdate[i] >= 0.2 then
-                        label.Text = tostring(math.floor(dist)) .. "m"
-                        lastTextUpdate[i] = currentTime
-                    end
+                    table.insert(visibleItems, {
+                        index = i,
+                        data = data,
+                        label = label,
+                        box = box,
+                        dist = dist,
+                        screenPos = screenPos,
+                        pos = pos
+                    })
                 else
                     label.Visible = false
                     box.Visible = false
@@ -253,6 +214,79 @@ local function UpdateESP()
             label.Visible = false
             box.Visible = false
         end
+    end
+    
+    table.sort(visibleItems, function(a, b)
+        return a.dist < b.dist
+    end)
+    
+    local showCount = math.min(#visibleItems, MAX_VISIBLE)
+    
+    for idx = 1, showCount do
+        local item = visibleItems[idx]
+        local i = item.index
+        local data = item.data
+        local label = item.label
+        local box = item.box
+        local dist = item.dist
+        local screenPos = item.screenPos
+        local pos = item.pos
+        
+        local size = data.Part.Size
+        local halfSize = size / 2
+        local cf = data.Part.CFrame
+        
+        local corners = {
+            cf * Vector3.new(-halfSize.X, -halfSize.Y, -halfSize.Z),
+            cf * Vector3.new( halfSize.X, -halfSize.Y, -halfSize.Z),
+            cf * Vector3.new( halfSize.X,  halfSize.Y, -halfSize.Z),
+            cf * Vector3.new(-halfSize.X,  halfSize.Y, -halfSize.Z),
+            cf * Vector3.new(-halfSize.X, -halfSize.Y,  halfSize.Z),
+            cf * Vector3.new( halfSize.X, -halfSize.Y,  halfSize.Z),
+            cf * Vector3.new( halfSize.X,  halfSize.Y,  halfSize.Z),
+            cf * Vector3.new(-halfSize.X,  halfSize.Y,  halfSize.Z)
+        }
+        
+        local screenCorners = {}
+        local allOnScreen = true
+        for j, corner in ipairs(corners) do
+            local screenPos2, onScreen2 = WorldToScreen(corner)
+            if not onScreen2 then
+                allOnScreen = false
+                break
+            end
+            screenCorners[j] = screenPos2
+        end
+        
+        if allOnScreen then
+            local minX, minY = math.huge, math.huge
+            local maxX, maxY = -math.huge, -math.huge
+            for _, sc in ipairs(screenCorners) do
+                if sc.X < minX then minX = sc.X end
+                if sc.Y < minY then minY = sc.Y end
+                if sc.X > maxX then maxX = sc.X end
+                if sc.Y > maxY then maxY = sc.Y end
+            end
+            
+            box.Position = Vector2.new(minX, minY)
+            box.Size = Vector2.new(maxX - minX, maxY - minY)
+            box.Visible = true
+        else
+            box.Visible = false
+        end
+        
+        label.Position = Vector2.new(screenPos.X, screenPos.Y - 30)
+        label.Visible = true
+        
+        if currentTime - lastTextUpdate[i] >= 0.2 then
+            label.Text = tostring(math.floor(dist)) .. "m"
+            lastTextUpdate[i] = currentTime
+        end
+    end
+    
+    for idx = showCount + 1, #visibleItems do
+        visibleItems[idx].label.Visible = false
+        visibleItems[idx].box.Visible = false
     end
 end
 
@@ -294,17 +328,22 @@ task.spawn(function()
         task.wait(0.5)
     end
 end)
+
 notify('Loaded | Run ID: ' .. runId, 4)
 
-local Players = game:GetService("Players")
+-- ===== ADMIN CHECK LOOP (Tied to runId + Cached) =====
 local HttpService = game:GetService("HttpService")
 local GroupId = 2838077
 local MinRank = 250
 
 local lastStaffString = ""
+local rankCache = {}
 
 local function GetRankInGroup(UserId, GroupId)
-    if not UserId then return 0, "Unknown" end
+    if rankCache[UserId] then
+        return rankCache[UserId].rank, rankCache[UserId].role
+    end
+    
     local url = "https://groups.roblox.com/v2/users/" .. UserId .. "/groups/roles"
     local success, response = pcall(game.HttpGet, game, url)
     if not success then return 0, "Unknown" end
@@ -312,14 +351,19 @@ local function GetRankInGroup(UserId, GroupId)
     local data = HttpService:JSONDecode(response)
     for _, group in pairs(data.data) do
         if group.group.id == GroupId then
+            rankCache[UserId] = {
+                rank = group.role.rank,
+                role = group.role.name
+            }
             return group.role.rank, group.role.name
         end
     end
+    rankCache[UserId] = { rank = 0, role = "Unknown" }
     return 0, "Unknown"
 end
 
 task.spawn(function()
-    while true do
+    while _G.AmmoESP_RunId == runId do
         local staffNames = {}
         local staffString = ""
         
