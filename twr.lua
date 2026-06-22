@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 local WorldToScreen = WorldToScreen
@@ -13,11 +12,6 @@ local pairs = pairs
 _G.AmmoESP_RunId = (_G.AmmoESP_RunId or 0) + 1
 local runId = _G.AmmoESP_RunId
 
-if _G.AmmoESP_RenderConnection then
-    pcall(function() _G.AmmoESP_RenderConnection:Disconnect() end)
-    _G.AmmoESP_RenderConnection = nil
-end
-
 if _G.AmmoESP_Labels then
     for _, label in ipairs(_G.AmmoESP_Labels) do
         pcall(function()
@@ -26,26 +20,15 @@ if _G.AmmoESP_Labels then
         end)
     end
 end
-if _G.AmmoESP_Boxes then
-    for _, box in ipairs(_G.AmmoESP_Boxes) do
-        pcall(function()
-            box.Visible = false
-            box:Remove()
-        end)
-    end
-end
 
 _G.AmmoESP_Labels = {}
-_G.AmmoESP_Boxes = {}
 
-local TEXT_SIZE = 16
-local BOX_THICKNESS = 2
-local MAX_VISIBLE = 6
+local TEXT_SIZE = 18
+local MAX_VISIBLE = 8
 local MAX_DISTANCE = 80
-local UPDATE_INTERVAL = 0.03
-local TEXT_INTERVAL = 0.8
+local UPDATE_INTERVAL = 0.025
+local TEXT_INTERVAL = 0.022
 
--- Precompute squared distances
 local ITEM_CONFIG = {
     Ammo = {
         Color = Color3.fromRGB(0, 180, 0),
@@ -66,16 +49,12 @@ local ITEM_CONFIG = {
 
 local ammoItems = {}
 local labels = {}
-local boxes = {}
 local lastTextUpdate = {}
 
 -- Reused arrays
-local visibleIndices = {}
 local visibleDists = {}
 local visibleScreenPos = {}
-local visibleData = {}
 local visibleLabels = {}
-local visibleBoxes = {}
 
 local function GetCharacterPosition()
     local char = LocalPlayer.Character
@@ -98,28 +77,13 @@ local function CreateLabel(color)
     return label
 end
 
-local function CreateBox(color)
-    local box = Drawing.new("Square")
-    box.Thickness = BOX_THICKNESS
-    box.Filled = false
-    box.Color = color
-    box.Visible = false
-    table.insert(_G.AmmoESP_Boxes, box)
-    return box
-end
-
 local function GetLabel(i)
     if not labels[i] then
         local config = ITEM_CONFIG[ammoItems[i] and ammoItems[i].Type or "Ammo"]
         labels[i] = CreateLabel(config.Color)
-        boxes[i] = CreateBox(config.Color)
         lastTextUpdate[i] = 0
     end
     return labels[i]
-end
-
-local function GetBox(i)
-    return boxes[i]
 end
 
 local function GetMeshName(itemName)
@@ -164,9 +128,6 @@ local function ScanForItems()
         if labels[i] then
             labels[i].Visible = false
         end
-        if boxes[i] then
-            boxes[i].Visible = false
-        end
     end
 end
 
@@ -185,7 +146,6 @@ local function UpdateESP()
     for i, data in ipairs(ammoItems) do
         local config = ITEM_CONFIG[data.Type] or ITEM_CONFIG.Ammo
         local label = GetLabel(i)
-        local box = GetBox(i)
         local maxDistSq = config.MaxDistSq
         
         local part = data.Part
@@ -200,23 +160,17 @@ local function UpdateESP()
                 local screenPos, onScreen = WorldToScreen(pos)
                 if onScreen then
                     visibleCount = visibleCount + 1
-                    visibleIndices[visibleCount] = i
                     visibleDists[visibleCount] = math.sqrt(distSq)
                     visibleScreenPos[visibleCount] = screenPos
-                    visibleData[visibleCount] = data
                     visibleLabels[visibleCount] = label
-                    visibleBoxes[visibleCount] = box
                 else
                     label.Visible = false
-                    if box then box.Visible = false end
                 end
             else
                 label.Visible = false
-                if box then box.Visible = false end
             end
         else
             label.Visible = false
-            if box then box.Visible = false end
         end
     end
     
@@ -231,48 +185,29 @@ local function UpdateESP()
             end
         end
         if bestIdx ~= i then
-            visibleIndices[i], visibleIndices[bestIdx] = visibleIndices[bestIdx], visibleIndices[i]
             visibleDists[i], visibleDists[bestIdx] = visibleDists[bestIdx], visibleDists[i]
             visibleScreenPos[i], visibleScreenPos[bestIdx] = visibleScreenPos[bestIdx], visibleScreenPos[i]
-            visibleData[i], visibleData[bestIdx] = visibleData[bestIdx], visibleData[i]
             visibleLabels[i], visibleLabels[bestIdx] = visibleLabels[bestIdx], visibleLabels[i]
-            visibleBoxes[i], visibleBoxes[bestIdx] = visibleBoxes[bestIdx], visibleBoxes[i]
         end
     end
     
     for idx = 1, showCount do
-        local i = visibleIndices[idx]
-        local data = visibleData[idx]
         local label = visibleLabels[idx]
-        local box = visibleBoxes[idx]
         local dist = visibleDists[idx]
         local screenPos = visibleScreenPos[idx]
         
-        -- 2D DISTANCE-SCALED BOX (1 WorldToScreen call, no corner projections)
-        local scale = math.clamp(700 / dist, 10, 34)
-        local halfScale = scale
-        
-        if box then
-            box.Position = Vector2.new(screenPos.X - halfScale, screenPos.Y - halfScale)
-            box.Size = Vector2.new(scale * 2, scale * 2)
-            box.Visible = true
-        end
-        
-        label.Position = Vector2.new(screenPos.X, screenPos.Y - scale - 10)
+        label.Position = Vector2.new(screenPos.X, screenPos.Y - 10)
         label.Visible = true
         
-        if currentTime - (lastTextUpdate[i] or 0) >= TEXT_INTERVAL then
+        if currentTime - (lastTextUpdate[idx] or 0) >= TEXT_INTERVAL then
             label.Text = tostring(math.floor(dist)) .. "m"
-            lastTextUpdate[i] = currentTime
+            lastTextUpdate[idx] = currentTime
         end
     end
     
     for idx = showCount + 1, visibleCount do
         if visibleLabels[idx] then
             visibleLabels[idx].Visible = false
-            if visibleBoxes[idx] then
-                visibleBoxes[idx].Visible = false
-            end
         end
     end
 end
