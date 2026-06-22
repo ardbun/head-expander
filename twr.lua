@@ -25,7 +25,7 @@ _G.AmmoESP_Labels = {}
 local TEXT_SIZE = 18
 local MAX_VISIBLE = 8
 local MAX_DISTANCE = 80
-local UPDATE_INTERVAL = 0.022
+local UPDATE_INTERVAL = 0.02
 
 local ITEM_CONFIG = {
     Ammo = {
