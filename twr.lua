@@ -306,7 +306,7 @@ end)
 task.spawn(function()
     while _G.AmmoESP_RunId == runId do
         UpdateESP()
-        task.wait(0.02)
+        task.wait(0.015)
     end
 end)
 
