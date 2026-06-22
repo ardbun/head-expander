@@ -25,30 +25,24 @@ _G.AmmoESP_Labels = {}
 local TEXT_SIZE = 18
 local MAX_VISIBLE = 8
 local MAX_DISTANCE = 80
-local UPDATE_INTERVAL = 0.02
+local UPDATE_INTERVAL = 0.022
 
-local ITEM_CONFIG = {
+-- Map model names to colors
+local TYPE_CONFIG = {
     Ammo = {
-        Color = Color3.fromRGB(0, 180, 0),
-        MaxDistance = MAX_DISTANCE,
-        MaxDistSq = MAX_DISTANCE * MAX_DISTANCE
+        Color = Color3.fromRGB(0, 180, 0)
     },
     Medkit = {
-        Color = Color3.fromRGB(180, 0, 0),
-        MaxDistance = MAX_DISTANCE,
-        MaxDistSq = MAX_DISTANCE * MAX_DISTANCE
+        Color = Color3.fromRGB(180, 0, 0)
     },
     Bandages = {
-        Color = Color3.fromRGB(222, 204, 168),
-        MaxDistance = MAX_DISTANCE,
-        MaxDistSq = MAX_DISTANCE * MAX_DISTANCE
+        Color = Color3.fromRGB(222, 204, 168)
     }
 }
 
 local ammoItems = {}
 local labels = {}
 
--- Reused arrays
 local visibleDists = {}
 local visibleScreenPos = {}
 local visibleIndices = {}
@@ -76,19 +70,11 @@ end
 
 local function GetLabel(i)
     if not labels[i] then
-        local config = ITEM_CONFIG[ammoItems[i] and ammoItems[i].Type or "Ammo"]
-        labels[i] = CreateLabel(config.Color)
+        local config = TYPE_CONFIG[ammoItems[i] and ammoItems[i].Type]
+        local color = config and config.Color or Color3.fromRGB(255, 255, 255)
+        labels[i] = CreateLabel(color)
     end
     return labels[i]
-end
-
-local function GetMeshName(itemName)
-    local meshMap = {
-        Ammo = "AmmoBoxes",
-        Medkit = "Medkit",
-        Bandages = "Bandages"
-    }
-    return meshMap[itemName]
 end
 
 local function ScanForItems()
@@ -101,17 +87,17 @@ local function ScanForItems()
     if not items then return end
 
     local newItems = {}
-    local validTypes = { Ammo = true, Medkit = true, Bandages = true }
 
     for _, child in ipairs(items:GetChildren()) do
-        if child:IsA("Model") and validTypes[child.Name] then
-            local meshName = GetMeshName(child.Name)
-            if meshName and child:FindFirstChild(meshName) then
+        if child:IsA("Model") then
+            -- Check by model name
+            local typeName = child.Name
+            if TYPE_CONFIG[typeName] then
                 local part = child:FindFirstChild("Box")
                 if part and part:IsA("BasePart") then
                     table.insert(newItems, {
                         Part = part,
-                        Type = child.Name
+                        Type = typeName
                     })
                 end
             end
@@ -133,15 +119,17 @@ local function UpdateESP()
     local charPos = GetCharacterPosition()
     if not charPos then return end
     
+    local cam = Workspace.CurrentCamera
+    if not cam then return end
+    
     local visibleCount = 0
     
     for i, data in ipairs(ammoItems) do
-        local config = ITEM_CONFIG[data.Type] or ITEM_CONFIG.Ammo
         local label = GetLabel(i)
-        local maxDistSq = config.MaxDistSq
+        local maxDistSq = MAX_DISTANCE * MAX_DISTANCE
         
         local part = data.Part
-        if part and part.Parent then
+        if part and part.Parent and part:IsA("BasePart") then
             local pos = part.Position
             local dx = pos.X - charPos.X
             local dy = pos.Y - charPos.Y
@@ -227,12 +215,13 @@ task.spawn(function()
         if infected then
             for _, zombie in ipairs(infected:GetChildren()) do
                 if zombie:IsA("Model") then
-                    local head = zombie:FindFirstChild("Head")
-                    if head and head:IsA("BasePart") then
-                        if head.Size.X ~= headSize then
-                            pcall(function()
-                                head.Size = Vector3.new(headSize, headSize, headSize)
-                            end)
+                        local head = zombie:FindFirstChild("Head")
+                        if head and head:IsA("BasePart") then
+                            if head.Size.X ~= headSize then
+                                pcall(function()
+                                    head.Size = Vector3.new(headSize, headSize, headSize)
+                                end)
+                            end
                         end
                     end
                 end
