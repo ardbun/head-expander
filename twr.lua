@@ -256,7 +256,7 @@ task.spawn(function()
     end
 end)
 
-local headSize = 6
+local headSize = 5
 
 local playerNames = {}
 for _, player in ipairs(Players:GetPlayers()) do
