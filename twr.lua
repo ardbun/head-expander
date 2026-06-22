@@ -7,7 +7,6 @@ local Drawing = Drawing
 local tick = tick
 local math = math
 local ipairs = ipairs
-local pairs = pairs
 
 _G.AmmoESP_RunId = (_G.AmmoESP_RunId or 0) + 1
 local runId = _G.AmmoESP_RunId
@@ -27,7 +26,6 @@ local TEXT_SIZE = 18
 local MAX_VISIBLE = 8
 local MAX_DISTANCE = 80
 local UPDATE_INTERVAL = 0.022
-local TEXT_INTERVAL = 0.022
 
 local ITEM_CONFIG = {
     Ammo = {
@@ -49,12 +47,11 @@ local ITEM_CONFIG = {
 
 local ammoItems = {}
 local labels = {}
-local lastTextUpdate = {}
 
 -- Reused arrays
 local visibleDists = {}
 local visibleScreenPos = {}
-local visibleLabels = {}
+local visibleIndices = {}
 
 local function GetCharacterPosition()
     local char = LocalPlayer.Character
@@ -81,7 +78,6 @@ local function GetLabel(i)
     if not labels[i] then
         local config = ITEM_CONFIG[ammoItems[i] and ammoItems[i].Type or "Ammo"]
         labels[i] = CreateLabel(config.Color)
-        lastTextUpdate[i] = 0
     end
     return labels[i]
 end
@@ -137,10 +133,6 @@ local function UpdateESP()
     local charPos = GetCharacterPosition()
     if not charPos then return end
     
-    local cam = Workspace.CurrentCamera
-    if not cam then return end
-    
-    local currentTime = tick()
     local visibleCount = 0
     
     for i, data in ipairs(ammoItems) do
@@ -149,7 +141,7 @@ local function UpdateESP()
         local maxDistSq = config.MaxDistSq
         
         local part = data.Part
-        if part and part.Parent and part:IsA("BasePart") then
+        if part and part.Parent then
             local pos = part.Position
             local dx = pos.X - charPos.X
             local dy = pos.Y - charPos.Y
@@ -160,9 +152,9 @@ local function UpdateESP()
                 local screenPos, onScreen = WorldToScreen(pos)
                 if onScreen then
                     visibleCount = visibleCount + 1
+                    visibleIndices[visibleCount] = i
                     visibleDists[visibleCount] = math.sqrt(distSq)
                     visibleScreenPos[visibleCount] = screenPos
-                    visibleLabels[visibleCount] = label
                 else
                     label.Visible = false
                 end
@@ -185,29 +177,26 @@ local function UpdateESP()
             end
         end
         if bestIdx ~= i then
+            visibleIndices[i], visibleIndices[bestIdx] = visibleIndices[bestIdx], visibleIndices[i]
             visibleDists[i], visibleDists[bestIdx] = visibleDists[bestIdx], visibleDists[i]
             visibleScreenPos[i], visibleScreenPos[bestIdx] = visibleScreenPos[bestIdx], visibleScreenPos[i]
-            visibleLabels[i], visibleLabels[bestIdx] = visibleLabels[bestIdx], visibleLabels[i]
         end
     end
     
     for idx = 1, showCount do
-        local label = visibleLabels[idx]
+        local label = GetLabel(visibleIndices[idx])
         local dist = visibleDists[idx]
         local screenPos = visibleScreenPos[idx]
         
         label.Position = Vector2.new(screenPos.X, screenPos.Y - 10)
+        label.Text = tostring(math.floor(dist)) .. "m"
         label.Visible = true
-        
-        if currentTime - (lastTextUpdate[idx] or 0) >= TEXT_INTERVAL then
-            label.Text = tostring(math.floor(dist)) .. "m"
-            lastTextUpdate[idx] = currentTime
-        end
     end
     
     for idx = showCount + 1, visibleCount do
-        if visibleLabels[idx] then
-            visibleLabels[idx].Visible = false
+        local label = GetLabel(visibleIndices[idx])
+        if label then
+            label.Visible = false
         end
     end
 end
