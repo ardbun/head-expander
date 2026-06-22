@@ -8,6 +8,11 @@ local tick = tick
 local math = math
 local ipairs = ipairs
 
+local iskeypressed = iskeypressed
+
+local HEAD_EXPANDER_ENABLED = true
+local lastCapsState = false
+
 _G.AmmoESP_RunId = (_G.AmmoESP_RunId or 0) + 1
 local runId = _G.AmmoESP_RunId
 
@@ -203,6 +208,31 @@ task.spawn(function()
     end
 end)
 
+task.spawn(function()
+    while _G.AmmoESP_RunId == runId do
+        local capsDown = iskeypressed(0x14) -- Caps Lock
+
+        if capsDown and not lastCapsState then
+            HEAD_EXPANDER_ENABLED = not HEAD_EXPANDER_ENABLED
+
+            print("Head Expander:", HEAD_EXPANDER_ENABLED and "ON" or "OFF")
+
+            pcall(function()
+                if _G.notify then
+                    _G.notify(
+                        "Head Expander",
+                        HEAD_EXPANDER_ENABLED and "Enabled" or "Disabled",
+                        3
+                    )
+                end
+            end)
+        end
+
+        lastCapsState = capsDown
+        task.wait(0.05)
+    end
+end)
+
 local headSize = 5
 
 task.spawn(function()
@@ -213,7 +243,20 @@ task.spawn(function()
         end
         
         if infected then
-            for _, zombie in ipairs(infected:GetChildren()) do
+            if HEAD_EXPANDER_ENABLED then
+    for _, zombie in ipairs(infected:GetChildren()) do
+        local head = zombie:FindFirstChild("Head")
+
+        if head
+            and head:IsA("BasePart")
+            and head.Size.X ~= headSize
+        then
+            pcall(function()
+                head.Size = Vector3.new(headSize, headSize, headSize)
+            end)
+        end
+    end
+end
                 if zombie:IsA("Model") then
                         local head = zombie:FindFirstChild("Head")
                         if head and head:IsA("BasePart") then
