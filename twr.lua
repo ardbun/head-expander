@@ -15,15 +15,27 @@ if _G.AmmoESP_Labels then
         end)
     end
 end
+if _G.AmmoESP_Boxes then
+    for _, box in ipairs(_G.AmmoESP_Boxes) do
+        pcall(function()
+            box.Visible = false
+            box:Remove()
+        end)
+    end
+end
 
 _G.AmmoESP_Labels = {}
+_G.AmmoESP_Boxes = {}
 
 local MAX_DISTANCE = 200
 local TEXT_SIZE = 16
 local TEXT_COLOR = Color3.fromRGB(0, 180, 0)
+local BOX_COLOR = Color3.fromRGB(0, 180, 0)
+local BOX_THICKNESS = 2
 
 local ammoItems = {}
 local labels = {}
+local boxes = {}
 local lastTextUpdate = {}
 
 local function GetCharacterPosition()
@@ -48,12 +60,31 @@ local function CreateLabel()
     return label
 end
 
+local function CreateBox()
+    local box = Drawing.new("Square")
+    box.Thickness = BOX_THICKNESS
+    box.Filled = false
+    box.Color = BOX_COLOR
+    box.Visible = false
+    
+    table.insert(_G.AmmoESP_Boxes, box)
+    return box
+end
+
 local function GetLabel(i)
     if not labels[i] then
         labels[i] = CreateLabel()
+        boxes[i] = CreateBox()
         lastTextUpdate[i] = 0
     end
     return labels[i]
+end
+
+local function GetBox(i)
+    if not boxes[i] then
+        boxes[i] = CreateBox()
+    end
+    return boxes[i]
 end
 
 local function ScanForAmmo()
@@ -75,7 +106,8 @@ local function ScanForAmmo()
             local part = child:FindFirstChild("Box")
             if part and part:IsA("BasePart") then
                 table.insert(newAmmo, {
-                    Part = part
+                    Part = part,
+                    Model = child
                 })
             end
         end
@@ -86,6 +118,9 @@ local function ScanForAmmo()
     for i = #ammoItems + 1, #labels do
         if labels[i] then
             labels[i].Visible = false
+        end
+        if boxes[i] then
+            boxes[i].Visible = false
         end
     end
 end
@@ -103,6 +138,7 @@ local function UpdateESP()
     
     for i, data in ipairs(ammoItems) do
         local label = GetLabel(i)
+        local box = GetBox(i)
         
         if data.Part and data.Part.Parent then
             local dist = (data.Part.Position - charPos).Magnitude
@@ -111,22 +147,72 @@ local function UpdateESP()
                 local pos, on = WorldToScreen(data.Part.Position)
                 
                 if on then
-                    label.Position = Vector2.new(pos.X, pos.Y - 20)
+                    -- Box around the ammo (3D bounding box projected to screen)
+                    local size = data.Part.Size
+                    local halfSize = size / 2
+                    
+                    -- Get the 8 corners of the bounding box in world space
+                    local cf = data.Part.CFrame
+                    local corners = {
+                        cf * Vector3.new(-halfSize.X, -halfSize.Y, -halfSize.Z),
+                        cf * Vector3.new( halfSize.X, -halfSize.Y, -halfSize.Z),
+                        cf * Vector3.new( halfSize.X,  halfSize.Y, -halfSize.Z),
+                        cf * Vector3.new(-halfSize.X,  halfSize.Y, -halfSize.Z),
+                        cf * Vector3.new(-halfSize.X, -halfSize.Y,  halfSize.Z),
+                        cf * Vector3.new( halfSize.X, -halfSize.Y,  halfSize.Z),
+                        cf * Vector3.new( halfSize.X,  halfSize.Y,  halfSize.Z),
+                        cf * Vector3.new(-halfSize.X,  halfSize.Y,  halfSize.Z)
+                    }
+                    
+                    -- Project all corners to screen
+                    local screenCorners = {}
+                    local allOnScreen = true
+                    for j, corner in ipairs(corners) do
+                        local screenPos, onScreen = WorldToScreen(corner)
+                        if not onScreen then
+                            allOnScreen = false
+                            break
+                        end
+                        screenCorners[j] = screenPos
+                    end
+                    
+                    if allOnScreen then
+                        -- Find min/max of screen corners
+                        local minX, minY = math.huge, math.huge
+                        local maxX, maxY = -math.huge, -math.huge
+                        for _, sc in ipairs(screenCorners) do
+                            if sc.X < minX then minX = sc.X end
+                            if sc.Y < minY then minY = sc.Y end
+                            if sc.X > maxX then maxX = sc.X end
+                            if sc.Y > maxY then maxY = sc.Y end
+                        end
+                        
+                        -- Draw box
+                        box.Position = Vector2.new(minX, minY)
+                        box.Size = Vector2.new(maxX - minX, maxY - minY)
+                        box.Visible = true
+                    else
+                        box.Visible = false
+                    end
+                    
+                    label.Position = Vector2.new(pos.X, pos.Y - 30)
                     label.Visible = true
                     
-                    -- Text updates only every 0.2 seconds (expensive)
                     if currentTime - lastTextUpdate[i] >= 0.2 then
                         label.Text = tostring(math.floor(dist)) .. "m"
                         lastTextUpdate[i] = currentTime
                     end
                 else
                     label.Visible = false
+                    box.Visible = false
                 end
             else
                 label.Visible = false
+                box.Visible = false
             end
         else
             label.Visible = false
+            box.Visible = false
         end
     end
 end
