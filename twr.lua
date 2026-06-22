@@ -56,7 +56,10 @@ local function ScanForAmmo()
     local newAmmo = {}
 
     for _, child in ipairs(items:GetChildren()) do
-        if child:IsA("Model") and child.Name == "Ammo" then
+        if child:IsA("Model")
+            and child.Name == "Ammo"
+            and child:FindFirstChild("AmmoBoxes")
+        then
             local part = child:FindFirstChild("Box")
             if part and part:IsA("BasePart") then
                 table.insert(newAmmo, {
@@ -114,9 +117,10 @@ task.spawn(function()
     end
 end)
 
-task.spawn(function()    while _G.AmmoESP_Running do
+task.spawn(function()
+    while _G.AmmoESP_Running do
         UpdateESP()
-        task.wait(0.035)
+        task.wait(0.02)
     end
 end)
 
@@ -151,7 +155,6 @@ task.spawn(function()
             for _, zombie in ipairs(infected:GetChildren()) do
                 if zombie:IsA("Model") then
                     if playerNames[zombie.Name] then
-                        -- skip real players
                     else
                         local head = zombie:FindFirstChild("Head")
                         if head and head:IsA("BasePart") then
