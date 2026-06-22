@@ -27,11 +27,23 @@ end
 _G.AmmoESP_Labels = {}
 _G.AmmoESP_Boxes = {}
 
-local MAX_DISTANCE = 200
 local TEXT_SIZE = 16
-local TEXT_COLOR = Color3.fromRGB(0, 180, 0)
-local BOX_COLOR = Color3.fromRGB(0, 180, 0)
 local BOX_THICKNESS = 2
+
+local ITEM_CONFIG = {
+    Ammo = {
+        Color = Color3.fromRGB(0, 180, 0),
+        MaxDistance = 200
+    },
+    Medkit = {
+        Color = Color3.fromRGB(180, 0, 0),
+        MaxDistance = 130
+    },
+    Bandages = {
+        Color = Color3.fromRGB(222, 204, 168),
+        MaxDistance = 130
+    }
+}
 
 local ammoItems = {}
 local labels = {}
@@ -47,24 +59,24 @@ local function GetCharacterPosition()
     return nil
 end
 
-local function CreateLabel()
+local function CreateLabel(color)
     local label = Drawing.new("Text")
     label.Size = TEXT_SIZE
     label.Font = Drawing.Fonts.UI
     label.Center = true
     label.Outline = true
-    label.Color = TEXT_COLOR
+    label.Color = color
     label.Visible = false
     
     table.insert(_G.AmmoESP_Labels, label)
     return label
 end
 
-local function CreateBox()
+local function CreateBox(color)
     local box = Drawing.new("Square")
     box.Thickness = BOX_THICKNESS
     box.Filled = false
-    box.Color = BOX_COLOR
+    box.Color = color
     box.Visible = false
     
     table.insert(_G.AmmoESP_Boxes, box)
@@ -73,8 +85,9 @@ end
 
 local function GetLabel(i)
     if not labels[i] then
-        labels[i] = CreateLabel()
-        boxes[i] = CreateBox()
+        local config = ITEM_CONFIG[ammoItems[i] and ammoItems[i].Type or "Ammo"]
+        labels[i] = CreateLabel(config.Color)
+        boxes[i] = CreateBox(config.Color)
         lastTextUpdate[i] = 0
     end
     return labels[i]
@@ -82,12 +95,22 @@ end
 
 local function GetBox(i)
     if not boxes[i] then
-        boxes[i] = CreateBox()
+        local config = ITEM_CONFIG[ammoItems[i] and ammoItems[i].Type or "Ammo"]
+        boxes[i] = CreateBox(config.Color)
     end
     return boxes[i]
 end
 
-local function ScanForAmmo()
+local function GetMeshName(itemName)
+    local meshMap = {
+        Ammo = "AmmoBoxes",
+        Medkit = "Medkit",
+        Bandages = "Bandages"
+    }
+    return meshMap[itemName]
+end
+
+local function ScanForItems()
     if _G.AmmoESP_RunId ~= runId then return end
     
     local items = Workspace:FindFirstChild("Ignore")
@@ -96,24 +119,26 @@ local function ScanForAmmo()
     end
     if not items then return end
 
-    local newAmmo = {}
+    local newItems = {}
+    local validTypes = { Ammo = true, Medkit = true, Bandages = true }
 
     for _, child in ipairs(items:GetChildren()) do
-        if child:IsA("Model")
-            and child.Name == "Ammo"
-            and child:FindFirstChild("AmmoBoxes")
-        then
-            local part = child:FindFirstChild("Box")
-            if part and part:IsA("BasePart") then
-                table.insert(newAmmo, {
-                    Part = part,
-                    Model = child
-                })
+        if child:IsA("Model") and validTypes[child.Name] then
+            local meshName = GetMeshName(child.Name)
+            if meshName and child:FindFirstChild(meshName) then
+                local part = child:FindFirstChild("Box")
+                if part and part:IsA("BasePart") then
+                    table.insert(newItems, {
+                        Part = part,
+                        Model = child,
+                        Type = child.Name
+                    })
+                end
             end
         end
     end
 
-    ammoItems = newAmmo
+    ammoItems = newItems
 
     for i = #ammoItems + 1, #labels do
         if labels[i] then
@@ -137,22 +162,25 @@ local function UpdateESP()
     local currentTime = tick()
     
     for i, data in ipairs(ammoItems) do
+        local config = ITEM_CONFIG[data.Type] or ITEM_CONFIG.Ammo
         local label = GetLabel(i)
         local box = GetBox(i)
+        local maxDist = config.MaxDistance
+        
+        label.Color = config.Color
+        box.Color = config.Color
         
         if data.Part and data.Part.Parent then
             local dist = (data.Part.Position - charPos).Magnitude
             
-            if dist <= MAX_DISTANCE then
+            if dist <= maxDist then
                 local pos, on = WorldToScreen(data.Part.Position)
                 
                 if on then
-                    -- Box around the ammo (3D bounding box projected to screen)
                     local size = data.Part.Size
                     local halfSize = size / 2
-                    
-                    -- Get the 8 corners of the bounding box in world space
                     local cf = data.Part.CFrame
+                    
                     local corners = {
                         cf * Vector3.new(-halfSize.X, -halfSize.Y, -halfSize.Z),
                         cf * Vector3.new( halfSize.X, -halfSize.Y, -halfSize.Z),
@@ -164,7 +192,6 @@ local function UpdateESP()
                         cf * Vector3.new(-halfSize.X,  halfSize.Y,  halfSize.Z)
                     }
                     
-                    -- Project all corners to screen
                     local screenCorners = {}
                     local allOnScreen = true
                     for j, corner in ipairs(corners) do
@@ -177,7 +204,6 @@ local function UpdateESP()
                     end
                     
                     if allOnScreen then
-                        -- Find min/max of screen corners
                         local minX, minY = math.huge, math.huge
                         local maxX, maxY = -math.huge, -math.huge
                         for _, sc in ipairs(screenCorners) do
@@ -187,7 +213,6 @@ local function UpdateESP()
                             if sc.Y > maxY then maxY = sc.Y end
                         end
                         
-                        -- Draw box
                         box.Position = Vector2.new(minX, minY)
                         box.Size = Vector2.new(maxX - minX, maxY - minY)
                         box.Visible = true
@@ -219,7 +244,7 @@ end
 
 task.spawn(function()
     while _G.AmmoESP_RunId == runId do
-        ScanForAmmo()
+        ScanForItems()
         task.wait(0.36)
     end
 end)
@@ -264,4 +289,4 @@ task.spawn(function()
     end
 end)
 
-print("twr head expander and ammo esp loaded | Run ID:", runId)
+print("Loaded | Run ID:", runId)
