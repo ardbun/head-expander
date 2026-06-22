@@ -33,7 +33,7 @@ local BOX_THICKNESS = 2
 local ITEM_CONFIG = {
     Ammo = {
         Color = Color3.fromRGB(0, 180, 0),
-        MaxDistance = 200
+        MaxDistance = 170
     },
     Medkit = {
         Color = Color3.fromRGB(180, 0, 0),
