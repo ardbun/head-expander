@@ -1,53 +1,295 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local HttpService = game:GetService("HttpService")
 
-_G.HeadExpander_RunId = (_G.HeadExpander_RunId or 0) + 1
-local runId = _G.HeadExpander_RunId
+local LocalPlayer = Players.LocalPlayer
 
--- ===== HEAD EXPANDER =====
-local headSize = 5
-
-task.spawn(function()
-    while _G.HeadExpander_RunId == runId do
-        local infected = Workspace:FindFirstChild("Entities")
-        if infected then
-            infected = infected:FindFirstChild("Infected")
-        end
+local CONFIG = {
+    MAX_VISIBLE = 5,
+    MAX_DISTANCE = 70,
+    UPDATE_INTERVAL = 0.022,
+    SCAN_INTERVAL = 2.0,
+    TEXT_SIZE = 18,
+    HEAD_SIZE = 5,
+    
+    ITEM_TYPES = {
+        Medkit = { Type = "Medkit", Color = Color3.fromRGB(180, 0, 0) },
+        MedKit = { Type = "Medkit", Color = Color3.fromRGB(180, 0, 0) },
+        MedicalKit = { Type = "Medkit", Color = Color3.fromRGB(180, 0, 0) },
+        HealthKit = { Type = "Medkit", Color = Color3.fromRGB(180, 0, 0) },
         
-        if infected then
-            for _, zombie in ipairs(infected:GetChildren()) do
-                if zombie:IsA("Model") then
-                    local head = zombie:FindFirstChild("Head")
-                    if head and head:IsA("BasePart") then
-                        if head.Size.X ~= headSize then
-                            pcall(function()
-                                head.Size = Vector3.new(headSize, headSize, headSize)
-                            end)
-                        end
+        Bandages = { Type = "Bandages", Color = Color3.fromRGB(222, 204, 168) },
+        Bandage = { Type = "Bandages", Color = Color3.fromRGB(222, 204, 168) },
+        BandAid = { Type = "Bandages", Color = Color3.fromRGB(222, 204, 168) },
+        
+        Ammo = { Type = "Ammo", Color = Color3.fromRGB(0, 180, 0) },
+    }
+}
+
+_G.AmmoESP_RunId = (_G.AmmoESP_RunId or 0) + 1
+local runId = _G.AmmoESP_RunId
+
+if _G.AmmoESP_Labels then
+    for _, label in ipairs(_G.AmmoESP_Labels) do
+        pcall(function()
+            label.Visible = false
+            label:Remove()
+        end)
+    end
+end
+_G.AmmoESP_Labels = {}
+
+local ammoItems = {}
+local labels = {}
+local visibleDists = {}
+local visibleScreenPos = {}
+local visibleIndices = {}
+
+local function GetCharacterPosition()
+    local char = LocalPlayer.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then return hrp.Position end
+    end
+    return nil
+end
+
+local function CreateLabel(color)
+    local label = Drawing.new("Text")
+    label.Size = CONFIG.TEXT_SIZE
+    label.Font = Drawing.Fonts.UI
+    label.Center = true
+    label.Outline = true
+    label.Color = color
+    label.Visible = false
+    table.insert(_G.AmmoESP_Labels, label)
+    return label
+end
+
+local function GetLabel(index)
+    if not labels[index] then
+        labels[index] = CreateLabel(Color3.fromRGB(255, 255, 255))
+    end
+    
+    local item = ammoItems[index]
+    if item then
+        local config = CONFIG.ITEM_TYPES[item.OriginalName]
+        if config then
+            labels[index].Color = config.Color
+        end
+    end
+    
+    return labels[index]
+end
+
+local function CleanupExtraLabels(newCount)
+    for i = newCount + 1, #labels do
+        if labels[i] then
+            pcall(function()
+                labels[i].Visible = false
+                labels[i]:Remove()
+            end)
+            labels[i] = nil
+        end
+    end
+    while #labels > newCount do
+        table.remove(labels)
+    end
+end
+
+local function ScanForItems()
+    if _G.AmmoESP_RunId ~= runId then return end
+    
+    local itemsContainer = Workspace:FindFirstChild("Ignore")
+    if itemsContainer then
+        itemsContainer = itemsContainer:FindFirstChild("Items")
+    end
+    if not itemsContainer then 
+        ammoItems = {}
+        CleanupExtraLabels(0)
+        return 
+    end
+    
+    local newItems = {}
+    
+    for _, model in ipairs(itemsContainer:GetChildren()) do
+        if model:IsA("Model") then
+            local matchedPart = nil
+            local matchedName = nil
+            local config = nil
+            
+            for _, child in ipairs(model:GetChildren()) do
+                if child:IsA("MeshPart") and child.Name ~= "Box" then
+                    local childConfig = CONFIG.ITEM_TYPES[child.Name]
+                    if childConfig then
+                        matchedPart = child
+                        matchedName = child.Name
+                        config = childConfig
+                        break
+                    end
+                    
+                    if model.Name == "Ammo" and child.Name == "" then
+                        matchedPart = child
+                        matchedName = "Ammo"
+                        config = CONFIG.ITEM_TYPES.Ammo
+                        break
+                    end
+                end
+            end
+            
+            if matchedPart and config then
+                table.insert(newItems, {
+                    Part = matchedPart,
+                    Type = config.Type,
+                    OriginalName = matchedName,
+                    Model = model
+                })
+            end
+        end
+    end
+    
+    ammoItems = newItems
+    CleanupExtraLabels(#ammoItems)
+end
+
+local function UpdateESP()
+    if _G.AmmoESP_RunId ~= runId then return end
+    
+    local charPos = GetCharacterPosition()
+    if not charPos then return end
+    
+    local cam = Workspace.CurrentCamera
+    if not cam then return end
+    
+    local visibleCount = 0
+    local maxDistSq = CONFIG.MAX_DISTANCE * CONFIG.MAX_DISTANCE
+    
+    for i, data in ipairs(ammoItems) do
+        local part = data.Part
+        if part and part.Parent and part:IsA("BasePart") then
+            local pos = part.Position
+            local dx = pos.X - charPos.X
+            local dy = pos.Y - charPos.Y
+            local dz = pos.Z - charPos.Z
+            local distSq = dx*dx + dy*dy + dz*dz
+            
+            if distSq <= maxDistSq then
+                local screenPos, onScreen = WorldToScreen(pos)
+                if onScreen then
+                    visibleCount = visibleCount + 1
+                    visibleIndices[visibleCount] = i
+                    visibleDists[visibleCount] = math.sqrt(distSq)
+                    visibleScreenPos[visibleCount] = screenPos
+                else
+                    local label = GetLabel(i)
+                    label.Visible = false
+                end
+            else
+                local label = GetLabel(i)
+                label.Visible = false
+            end
+        else
+            local label = GetLabel(i)
+            label.Visible = false
+        end
+    end
+    
+    local showCount = math.min(visibleCount, CONFIG.MAX_VISIBLE)
+    for i = 1, showCount do
+        local bestIdx = i
+        local bestDist = visibleDists[i]
+        for j = i + 1, visibleCount do
+            if visibleDists[j] < bestDist then
+                bestDist = visibleDists[j]
+                bestIdx = j
+            end
+        end
+        if bestIdx ~= i then
+            visibleIndices[i], visibleIndices[bestIdx] = visibleIndices[bestIdx], visibleIndices[i]
+            visibleDists[i], visibleDists[bestIdx] = visibleDists[bestIdx], visibleDists[i]
+            visibleScreenPos[i], visibleScreenPos[bestIdx] = visibleScreenPos[bestIdx], visibleScreenPos[i]
+        end
+    end
+    
+    for idx = 1, showCount do
+        local itemIndex = visibleIndices[idx]
+        local label = GetLabel(itemIndex)
+        local dist = visibleDists[idx]
+        local screenPos = visibleScreenPos[idx]
+        
+        label.Position = Vector2.new(screenPos.X, screenPos.Y - 15)
+        label.Text = tostring(math.floor(dist)) .. "m"
+        label.Visible = true
+    end
+    
+    for idx = showCount + 1, visibleCount do
+        local label = GetLabel(visibleIndices[idx])
+        if label then
+            label.Visible = false
+        end
+    end
+end
+
+local function ExpandZombieHeads()
+    local infectedContainer = Workspace:FindFirstChild("Entities")
+    if infectedContainer then
+        infectedContainer = infectedContainer:FindFirstChild("Infected")
+    end
+    if not infectedContainer then return end
+    
+    local targetSize = CONFIG.HEAD_SIZE
+    
+    for _, zombie in ipairs(infectedContainer:GetChildren()) do
+        if zombie:IsA("Model") then
+            local humanoid = zombie:FindFirstChild("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                local head = zombie:FindFirstChild("Head")
+                if head and head:IsA("BasePart") then
+                    local currentSize = head.Size
+                    if math.abs(currentSize.X - targetSize) > 0.01 then
+                        pcall(function()
+                            head.Size = Vector3.new(targetSize, targetSize, targetSize)
+                        end)
                     end
                 end
             end
         end
+    end
+end
+
+task.spawn(function()
+    while _G.AmmoESP_RunId == runId do
+        ScanForItems()
+        task.wait(CONFIG.SCAN_INTERVAL)
+    end
+end)
+
+task.spawn(function()
+    while _G.AmmoESP_RunId == runId do
+        UpdateESP()
+        task.wait(CONFIG.UPDATE_INTERVAL)
+    end
+end)
+
+task.spawn(function()
+    while _G.AmmoESP_RunId == runId do
+        ExpandZombieHeads()
         task.wait(0.5)
     end
 end)
 
--- ===== NOTIFICATION =====
-if _G.notify then
-    _G.notify("Head Expander", "Loaded | Run ID: " .. runId, 4)
-elseif notify then
-    notify("Head Expander", "Loaded | Run ID: " .. runId, 4)
-else
-    print("Head Expander Loaded | Run ID: " .. runId)
+if notify then
+    pcall(function()
+        notify("Item ESP", "Loaded | Run ID: " .. runId, 4)
+    end)
 end
 
--- ===== ADMIN CHECK LOOP =====
-local HttpService = game:GetService("HttpService")
 local GroupId = 2838077
 local MinRank = 250
 
-local lastStaffString = ""
 local rankCache = {}
+local lastStaffString = ""
+local lastNotifyTime = 0
 
 local function GetRankInGroup(UserId, GroupId)
     if rankCache[UserId] then
@@ -55,19 +297,19 @@ local function GetRankInGroup(UserId, GroupId)
     end
     
     local url = "https://groups.roblox.com/v2/users/" .. UserId .. "/groups/roles"
-    local success, response = pcall(function()
-        if httpget then
-            return httpget(url)
-        else
-            return game:HttpGet(url)
-        end
-    end)
-    if not success or not response or response == "" then return 0, "Unknown" end
+    local success, response = pcall(httpget, url)
+    
+    if not success or response == "" then 
+        return 0, "Unknown" 
+    end
     
     local success2, data = pcall(function()
         return HttpService:JSONDecode(response)
     end)
-    if not success2 or not data then return 0, "Unknown" end
+    
+    if not success2 or not data then 
+        return 0, "Unknown" 
+    end
     
     if data.data then
         for _, group in pairs(data.data) do
@@ -80,16 +322,17 @@ local function GetRankInGroup(UserId, GroupId)
             end
         end
     end
+    
     rankCache[UserId] = { rank = 0, role = "Unknown" }
     return 0, "Unknown"
 end
 
 task.spawn(function()
-    while _G.HeadExpander_RunId == runId do
+    while _G.AmmoESP_RunId == runId do
         local staffNames = {}
-        local staffString = ""
+        local players = Players:GetPlayers()
         
-        for _, player in ipairs(Players:GetPlayers()) do
+        for _, player in ipairs(players) do
             local userId = player.UserId
             if userId then
                 local rank, roleName = GetRankInGroup(userId, GroupId)
@@ -99,26 +342,21 @@ task.spawn(function()
             end
         end
         
-        staffString = table.concat(staffNames, ", ")
+        local staffString = table.concat(staffNames, ", ")
+        local currentTime = tick()
+        local staffCount = #staffNames
         
-        if staffString ~= lastStaffString and #staffNames > 0 then
+        if (staffString ~= lastStaffString or currentTime - lastNotifyTime > 30) and staffCount > 0 then
             lastStaffString = staffString
+            lastNotifyTime = currentTime
             
-            pcall(function()
-                if _G.notify then
-                    _G.notify("Staff Online (" .. #staffNames .. ")", staffString, 10)
-                elseif notify then
-                    notify("Staff Online (" .. #staffNames .. ")", staffString, 10)
-                else
-                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                        Title = "Staff Online (" .. #staffNames .. ")",
-                        Text = staffString,
-                        Duration = 10
-                    })
-                end
-            end)
+            if notify then
+                pcall(function()
+                    notify("Staff Online (" .. staffCount .. ")", staffString, 10)
+                end)
+            end
         end
         
-        task.wait(5)
+        task.wait(30)
     end
 end)
