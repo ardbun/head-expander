@@ -124,14 +124,16 @@ local function UpdateESP()
     local charPos = GetCharacterPosition()
     if not charPos then return end
     
-    local cam = Workspace.CurrentCamera
-    if not cam then return end
-    
     local visibleCount = 0
     
     for i, data in ipairs(ammoItems) do
-        local label = GetLabel(i)
-        local maxDistSq = MAX_DISTANCE * MAX_DISTANCE
+    local label = GetLabel(i)
+    local config = TYPE_CONFIG[data.Type]
+    if config then
+        label.Color = config.Color
+    end
+
+    local maxDistSq = MAX_DISTANCE * MAX_DISTANCE
         
         local part = data.Part
         if part and part.Parent and part:IsA("BasePart") then
@@ -182,7 +184,8 @@ local function UpdateESP()
         local screenPos = visibleScreenPos[idx]
         
         label.Position = Vector2.new(screenPos.X, screenPos.Y - 10)
-        label.Text = tostring(math.floor(dist)) .. "m"
+        local item = ammoItems[visibleIndices[idx]]
+        label.Text = item.Type .. " " .. tostring(math.floor(dist)) .. "m"
         label.Visible = true
     end
     
@@ -237,28 +240,12 @@ local headSize = 5
 
 task.spawn(function()
     while _G.AmmoESP_RunId == runId do
-        ScanForItems()
-        task.wait(0.5)
-    end
-end)
-
-task.spawn(function()
-    while _G.AmmoESP_RunId == runId do
-        UpdateESP()
-        task.wait(UPDATE_INTERVAL)
-    end
-end)
-
-local headSize = 5
-
-task.spawn(function()
-    while _G.AmmoESP_RunId == runId do
         local infected = Workspace:FindFirstChild("Entities")
         if infected then
             infected = infected:FindFirstChild("Infected")
         end
         
-        if infected then
+        if infected and HEAD_EXPANDER_ENABLED then
             for _, zombie in ipairs(infected:GetChildren()) do
                 if zombie:IsA("Model") then
                     local humanoid = zombie:FindFirstChild("Humanoid")
