@@ -138,12 +138,16 @@ local function ScanForItems()
             end
             
             if matchedPart and config then
-                table.insert(newItems, {
-                    Part = matchedPart,
-                    Type = config.Type,
-                    OriginalName = matchedName,
-                    Model = model
-                })
+                local boxPart = model:FindFirstChild("Box")
+                if boxPart and boxPart:IsA("BasePart") then
+                    table.insert(newItems, {
+                        Part = boxPart,
+                        Type = config.Type,
+                        OriginalName = matchedName,
+                        Model = model,
+                        MeshPart = matchedPart
+                    })
+                end
             end
         end
     end
@@ -168,6 +172,13 @@ local function UpdateESP()
         local part = data.Part
         if part and part.Parent and part:IsA("BasePart") then
             local pos = part.Position
+            
+            if not pos then
+                local label = GetLabel(i)
+                label.Visible = false
+                continue
+            end
+            
             local dx = pos.X - charPos.X
             local dy = pos.Y - charPos.Y
             local dz = pos.Z - charPos.Z
