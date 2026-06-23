@@ -14,9 +14,7 @@ local CONFIG = {
     
     ITEM_TYPES = {
         Medkit = { Type = "Medkit", Color = Color3.fromRGB(180, 0, 0) },
-        
         Bandages = { Type = "Bandages", Color = Color3.fromRGB(222, 204, 168) },
-        
         AmmoBoxes = { Type = "Ammo", Color = Color3.fromRGB(0, 180, 0) },
     }
 }
@@ -39,7 +37,6 @@ local labels = {}
 local visibleDists = {}
 local visibleScreenPos = {}
 local visibleIndices = {}
-
 
 local function GetCharacterPosition()
     local char = LocalPlayer.Character
@@ -93,8 +90,6 @@ local function CleanupExtraLabels(newCount)
     end
 end
 
--- ===== Item Scanning =====
-
 local function ScanForItems()
     if _G.AmmoESP_RunId ~= runId then return end
     
@@ -116,9 +111,7 @@ local function ScanForItems()
             local matchedName = nil
             local config = nil
             
-            -- Find the actual item MeshPart (not Box)
             for _, child in ipairs(model:GetChildren()) do
-                -- Skip Box and anything that's not a MeshPart
                 if child:IsA("MeshPart") and child.Name ~= "Box" then
                     local childConfig = CONFIG.ITEM_TYPES[child.Name]
                     if childConfig then
@@ -130,16 +123,12 @@ local function ScanForItems()
                 end
             end
             
-            -- Use Box for positioning
             if matchedPart and config then
                 local boxPart = model:FindFirstChild("Box")
                 if boxPart and boxPart:IsA("BasePart") then
                     table.insert(newItems, {
                         Part = boxPart,
-                        Type = config.Type,
                         OriginalName = matchedName,
-                        Model = model,
-                        MeshPart = matchedPart
                     })
                 end
             end
@@ -150,16 +139,13 @@ local function ScanForItems()
     CleanupExtraLabels(#ammoItems)
 end
 
--- ===== ESP Update =====
-
 local function UpdateESP()
     if _G.AmmoESP_RunId ~= runId then return end
     
     local charPos = GetCharacterPosition()
     if not charPos then return end
     
-    local cam = Workspace.CurrentCamera
-    if not cam then return end
+    if not Workspace.CurrentCamera then return end
     
     local visibleCount = 0
     local maxDistSq = CONFIG.MAX_DISTANCE * CONFIG.MAX_DISTANCE
@@ -181,7 +167,6 @@ local function UpdateESP()
             local distSq = dx*dx + dy*dy + dz*dz
             
             if distSq <= maxDistSq then
-                -- Wrap WorldToScreen in pcall to prevent errors from killing the loop
                 local success, screenPos, onScreen = pcall(WorldToScreen, pos)
                 if success and onScreen then
                     visibleCount = visibleCount + 1
