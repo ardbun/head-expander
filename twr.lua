@@ -8,11 +8,6 @@ local tick = tick
 local math = math
 local ipairs = ipairs
 
-local iskeypressed = iskeypressed
-
-local HEAD_EXPANDER_ENABLED = true
-local lastCapsState = false
-
 _G.AmmoESP_RunId = (_G.AmmoESP_RunId or 0) + 1
 local runId = _G.AmmoESP_RunId
 
@@ -32,15 +27,18 @@ local MAX_VISIBLE = 8
 local MAX_DISTANCE = 80
 local UPDATE_INTERVAL = 0.022
 
--- Map model names to colors
-local TYPE_CONFIG = {
-    Ammo = {
+-- Map mesh names to types and colors
+local MESH_CONFIG = {
+    AmmoBoxes = {
+        Type = "Ammo",
         Color = Color3.fromRGB(0, 180, 0)
     },
     Medkit = {
+        Type = "Medkit",
         Color = Color3.fromRGB(180, 0, 0)
     },
     Bandages = {
+        Type = "Bandages",
         Color = Color3.fromRGB(222, 204, 168)
     }
 }
@@ -75,7 +73,7 @@ end
 
 local function GetLabel(i)
     if not labels[i] then
-        local config = TYPE_CONFIG[ammoItems[i] and ammoItems[i].Type]
+        local config = MESH_CONFIG[ammoItems[i] and ammoItems[i].MeshName]
         local color = config and config.Color or Color3.fromRGB(255, 255, 255)
         labels[i] = CreateLabel(color)
     end
@@ -95,16 +93,17 @@ local function ScanForItems()
 
     for _, child in ipairs(items:GetChildren()) do
         if child:IsA("Model") then
-            -- Check by model name
-            local typeName = child.Name
-            if TYPE_CONFIG[typeName] then
-                local part = child:FindFirstChild("Box")
-                if part and part:IsA("BasePart") then
-                    table.insert(newItems, {
-                        Part = part,
-                        Type = typeName
-                    })
-                end
+            -- Exact mesh detection (no random MeshPart)
+            local meshPart = child:FindFirstChild("AmmoBoxes")
+                or child:FindFirstChild("Medkit")
+                or child:FindFirstChild("Bandages")
+            
+            if meshPart and MESH_CONFIG[meshPart.Name] then
+                table.insert(newItems, {
+                    Part = meshPart,
+                    Type = MESH_CONFIG[meshPart.Name].Type,
+                    MeshName = meshPart.Name
+                })
             end
         end
     end
@@ -127,13 +126,13 @@ local function UpdateESP()
     local visibleCount = 0
     
     for i, data in ipairs(ammoItems) do
-    local label = GetLabel(i)
-    local config = TYPE_CONFIG[data.Type]
-    if config then
-        label.Color = config.Color
-    end
+        local label = GetLabel(i)
+        local config = MESH_CONFIG[data.MeshName]
+        if config then
+            label.Color = config.Color
+        end
 
-    local maxDistSq = MAX_DISTANCE * MAX_DISTANCE
+        local maxDistSq = MAX_DISTANCE * MAX_DISTANCE
         
         local part = data.Part
         if part and part.Parent and part:IsA("BasePart") then
@@ -184,8 +183,7 @@ local function UpdateESP()
         local screenPos = visibleScreenPos[idx]
         
         label.Position = Vector2.new(screenPos.X, screenPos.Y - 10)
-        local item = ammoItems[visibleIndices[idx]]
-        label.Text = item.Type .. " " .. tostring(math.floor(dist)) .. "m"
+        label.Text = tostring(math.floor(dist)) .. "m"
         label.Visible = true
     end
     
@@ -211,31 +209,6 @@ task.spawn(function()
     end
 end)
 
-task.spawn(function()
-    while _G.AmmoESP_RunId == runId do
-        local capsDown = iskeypressed(0x14) -- Caps Lock
-
-        if capsDown and not lastCapsState then
-            HEAD_EXPANDER_ENABLED = not HEAD_EXPANDER_ENABLED
-
-            print("Head Expander:", HEAD_EXPANDER_ENABLED and "ON" or "OFF")
-
-            pcall(function()
-                if _G.notify then
-                    _G.notify(
-                        "Head Expander",
-                        HEAD_EXPANDER_ENABLED and "Enabled" or "Disabled",
-                        3
-                    )
-                end
-            end)
-        end
-
-        lastCapsState = capsDown
-        task.wait(0.05)
-    end
-end)
-
 local headSize = 5
 
 task.spawn(function()
@@ -245,18 +218,15 @@ task.spawn(function()
             infected = infected:FindFirstChild("Infected")
         end
         
-        if infected and HEAD_EXPANDER_ENABLED then
+        if infected then
             for _, zombie in ipairs(infected:GetChildren()) do
                 if zombie:IsA("Model") then
-                    local humanoid = zombie:FindFirstChild("Humanoid")
-                    if humanoid and humanoid.Health > 0 then
-                        local head = zombie:FindFirstChild("Head")
-                        if head and head:IsA("BasePart") then
-                            if head.Size.X ~= headSize then
-                                pcall(function()
-                                    head.Size = Vector3.new(headSize, headSize, headSize)
-                                end)
-                            end
+                    local head = zombie:FindFirstChild("Head")
+                    if head and head:IsA("BasePart") then
+                        if head.Size.X ~= headSize then
+                            pcall(function()
+                                head.Size = Vector3.new(headSize, headSize, headSize)
+                            end)
                         end
                     end
                 end
