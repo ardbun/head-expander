@@ -8,21 +8,16 @@ local CONFIG = {
     MAX_VISIBLE = 5,
     MAX_DISTANCE = 70,
     UPDATE_INTERVAL = 0.022,
-    SCAN_INTERVAL = 2.0,
+    SCAN_INTERVAL = 0.5,
     TEXT_SIZE = 18,
     HEAD_SIZE = 5,
     
     ITEM_TYPES = {
         Medkit = { Type = "Medkit", Color = Color3.fromRGB(180, 0, 0) },
-        MedKit = { Type = "Medkit", Color = Color3.fromRGB(180, 0, 0) },
-        MedicalKit = { Type = "Medkit", Color = Color3.fromRGB(180, 0, 0) },
-        HealthKit = { Type = "Medkit", Color = Color3.fromRGB(180, 0, 0) },
         
         Bandages = { Type = "Bandages", Color = Color3.fromRGB(222, 204, 168) },
-        Bandage = { Type = "Bandages", Color = Color3.fromRGB(222, 204, 168) },
-        BandAid = { Type = "Bandages", Color = Color3.fromRGB(222, 204, 168) },
         
-        Ammo = { Type = "Ammo", Color = Color3.fromRGB(0, 180, 0) },
+        AmmoBoxes = { Type = "Ammo", Color = Color3.fromRGB(0, 180, 0) },
     }
 }
 
@@ -44,6 +39,7 @@ local labels = {}
 local visibleDists = {}
 local visibleScreenPos = {}
 local visibleIndices = {}
+
 
 local function GetCharacterPosition()
     local char = LocalPlayer.Character
@@ -97,6 +93,8 @@ local function CleanupExtraLabels(newCount)
     end
 end
 
+-- ===== Item Scanning =====
+
 local function ScanForItems()
     if _G.AmmoESP_RunId ~= runId then return end
     
@@ -118,7 +116,9 @@ local function ScanForItems()
             local matchedName = nil
             local config = nil
             
+            -- Find the actual item MeshPart (not Box)
             for _, child in ipairs(model:GetChildren()) do
+                -- Skip Box and anything that's not a MeshPart
                 if child:IsA("MeshPart") and child.Name ~= "Box" then
                     local childConfig = CONFIG.ITEM_TYPES[child.Name]
                     if childConfig then
@@ -127,16 +127,10 @@ local function ScanForItems()
                         config = childConfig
                         break
                     end
-                    
-                    if model.Name == "Ammo" and child.Name == "" then
-                        matchedPart = child
-                        matchedName = "Ammo"
-                        config = CONFIG.ITEM_TYPES.Ammo
-                        break
-                    end
                 end
             end
             
+            -- Use Box for positioning
             if matchedPart and config then
                 local boxPart = model:FindFirstChild("Box")
                 if boxPart and boxPart:IsA("BasePart") then
@@ -155,6 +149,8 @@ local function ScanForItems()
     ammoItems = newItems
     CleanupExtraLabels(#ammoItems)
 end
+
+-- ===== ESP Update =====
 
 local function UpdateESP()
     if _G.AmmoESP_RunId ~= runId then return end
@@ -185,8 +181,9 @@ local function UpdateESP()
             local distSq = dx*dx + dy*dy + dz*dz
             
             if distSq <= maxDistSq then
-                local screenPos, onScreen = WorldToScreen(pos)
-                if onScreen then
+                -- Wrap WorldToScreen in pcall to prevent errors from killing the loop
+                local success, screenPos, onScreen = pcall(WorldToScreen, pos)
+                if success and onScreen then
                     visibleCount = visibleCount + 1
                     visibleIndices[visibleCount] = i
                     visibleDists[visibleCount] = math.sqrt(distSq)
@@ -301,6 +298,7 @@ local MinRank = 250
 local rankCache = {}
 local lastStaffString = ""
 local lastNotifyTime = 0
+local lastStaffCount = 0
 
 local function GetRankInGroup(UserId, GroupId)
     if rankCache[UserId] then
@@ -357,13 +355,20 @@ task.spawn(function()
         local currentTime = tick()
         local staffCount = #staffNames
         
-        if (staffString ~= lastStaffString or currentTime - lastNotifyTime > 30) and staffCount > 0 then
+        local previousStaffCount = lastStaffCount
+        lastStaffCount = staffCount
+        
+        if staffString ~= lastStaffString or currentTime - lastNotifyTime > 30 then
             lastStaffString = staffString
             lastNotifyTime = currentTime
             
-            if notify then
+            if staffCount > 0 and notify then
                 pcall(function()
                     notify("Staff Online (" .. staffCount .. ")", staffString, 10)
+                end)
+            elseif staffCount == 0 and previousStaffCount > 0 and notify then
+                pcall(function()
+                    notify("Staff Online", "No staff members online", 10)
                 end)
             end
         end
