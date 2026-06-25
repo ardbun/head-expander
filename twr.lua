@@ -14,18 +14,38 @@ local CONFIG = {
     MinStaffRank = 250,
     ZombieUpdateInterval = 0.5,
     TextYOffset = 15,
+    CircleSegments = 16,
+    CircleRadius = 1.8,
+    CircleYOffset = 1.0,
+    FadeDistance = 40,
+    CacheClearInterval = 1800,
+    CircleThickness = 2,
 }
 
 local ITEM_META = {
-    Medkit = { Color = Color3.fromRGB(180, 0, 0) },
-    Bandages = { Color = Color3.fromRGB(222, 204, 168) },
-    AmmoBoxes = { Color = Color3.fromRGB(0, 180, 0) },
+    Medkit = { Color = Color3.fromRGB(180, 0, 0), Label = "medkit" },
+    Bandages = { Color = Color3.fromRGB(222, 204, 168), Label = "bandages" },
+    AmmoBoxes = { Color = Color3.fromRGB(0, 180, 0), Label = "ammo" },
 }
+
+local CircleOffsets = {}
+for i = 1, CONFIG.CircleSegments do
+    local a = (i - 1) * (2 * math.pi / CONFIG.CircleSegments)
+    CircleOffsets[i] = Vector3.new(
+        math.cos(a) * CONFIG.CircleRadius,
+        0,
+        math.sin(a) * CONFIG.CircleRadius
+    )
+end
+
+local CircleOffset = Vector3.new(0, CONFIG.CircleYOffset, 0)
+local TargetHeadSize = Vector3.new(CONFIG.HeadSize, CONFIG.HeadSize, CONFIG.HeadSize)
 
 local State = {
     RunId = ((_G.MatchaItemScript_RunId or 0) + 1),
     Items = {},
     Labels = {},
+    Circles = {},
     VisibleItems = {},
     RankCache = {},
     LastStaffString = "",
@@ -33,6 +53,7 @@ local State = {
 _G.MatchaItemScript_RunId = State.RunId
 
 local LocalPlayer = Players.LocalPlayer
+local studConv = 1 / 3.5714285714
 
 if _G.MatchaItemScript_Labels then
     for _, label in ipairs(_G.MatchaItemScript_Labels) do
@@ -43,6 +64,35 @@ if _G.MatchaItemScript_Labels then
     end
 end
 _G.MatchaItemScript_Labels = {}
+
+if _G.MatchaItemScript_Circles then
+    for _, circle in ipairs(_G.MatchaItemScript_Circles) do
+        pcall(function()
+            circle.Visible = false
+            circle:Remove()
+        end)
+    end
+end
+_G.MatchaItemScript_Circles = {}
+
+local function newLineSegment()
+    local ok, l = pcall(function() return Drawing.new("Line") end)
+    if not ok or not l then return nil end
+    l.Visible = false
+    l.From = Vector2.new(0, 0)
+    l.To = Vector2.new(0, 0)
+    l.Thickness = CONFIG.CircleThickness
+    return l
+end
+
+local function createCircleSegments(segCount)
+    local segs = {}
+    for i = 1, segCount do
+        local l = newLineSegment()
+        if l then segs[#segs + 1] = l end
+    end
+    return segs
+end
 
 local function getLocalPosition()
     local char = LocalPlayer.Character
@@ -67,29 +117,56 @@ end
 
 local function getLabel(index)
     if not State.Labels[index] then
-        State.Labels[index] = createLabel(Color3.fromRGB(255, 255, 255))
-    end
-    
-    local item = State.Items[index]
-    if item then
-        local meta = ITEM_META[item.OriginalName]
-        if meta then
-            State.Labels[index].Color = meta.Color
+        local color = Color3.fromRGB(255, 255, 255)
+        local item = State.Items[index]
+        if item then
+            local meta = ITEM_META[item.OriginalName]
+            if meta then
+                color = meta.Color
+            end
         end
+        State.Labels[index] = createLabel(color)
     end
-    
     return State.Labels[index]
 end
 
+local function ensureCircleSegments(index)
+    if not State.Circles[index] then
+        State.Circles[index] = createCircleSegments(CONFIG.CircleSegments)
+        for _, seg in ipairs(State.Circles[index]) do
+            table.insert(_G.MatchaItemScript_Circles, seg)
+        end
+    end
+    return State.Circles[index]
+end
+
+local function hideCircle(index)
+    local circle = State.Circles[index]
+    if not circle then return end
+    for _, seg in ipairs(circle) do
+        seg.Visible = false
+    end
+end
+
 local function hideLabel(index)
-    local label = getLabel(index)
-    label.Visible = false
+    local label = State.Labels[index]
+    if label then label.Visible = false end
 end
 
 local function hideLabels()
     for i = 1, #State.Labels do
         if State.Labels[i] then
             State.Labels[i].Visible = false
+        end
+    end
+end
+
+local function hideCircles()
+    for _, circle in ipairs(State.Circles) do
+        if circle then
+            for _, seg in ipairs(circle) do
+                if seg then seg.Visible = false end
+            end
         end
     end
 end
@@ -109,6 +186,25 @@ local function trimLabels(newCount)
     end
 end
 
+local function trimCircles(newCount)
+    for i = newCount + 1, #State.Circles do
+        if State.Circles[i] then
+            pcall(function()
+                for _, seg in ipairs(State.Circles[i]) do
+                    if seg then
+                        seg.Visible = false
+                        seg:Remove()
+                    end
+                end
+            end)
+            State.Circles[i] = nil
+        end
+    end
+    while #State.Circles > newCount do
+        table.remove(State.Circles)
+    end
+end
+
 local function scanItems()
     if _G.MatchaItemScript_RunId ~= State.RunId then return end
     
@@ -119,6 +215,7 @@ local function scanItems()
     if not itemsContainer then 
         State.Items = {}
         trimLabels(0)
+        trimCircles(0)
         return 
     end
     
@@ -151,19 +248,20 @@ local function scanItems()
     
     State.Items = newItems
     trimLabels(#State.Items)
+    trimCircles(#State.Items)
 end
 
 local function updateItemEsp()
     if _G.MatchaItemScript_RunId ~= State.RunId then return end
     
     local charPos = getLocalPosition()
-    if not charPos or not Workspace.CurrentCamera then
+    if not charPos then
         hideLabels()
+        hideCircles()
         return
     end
     
     State.VisibleItems = {}
-    
     local visibleCount = 0
     local maxDistSq = CONFIG.MaxDistance * CONFIG.MaxDistance
     
@@ -179,36 +277,41 @@ local function updateItemEsp()
                 local distSq = dx*dx + dy*dy + dz*dz
                 
                 if distSq <= maxDistSq then
-                    local success, screenPos, onScreen = pcall(WorldToScreen, pos)
+                    local screenPos, onScreen = WorldToScreen(pos)
                     
-                    if success and onScreen then
+                    if onScreen then
                         visibleCount = visibleCount + 1
                         State.VisibleItems[visibleCount] = {
                             Index = i,
-                            Distance = math.sqrt(distSq),
-                            ScreenPos = screenPos
+                            DistanceSq = distSq,
+                            ScreenPos = screenPos,
+                            WorldPos = pos
                         }
                     else
                         hideLabel(i)
+                        hideCircle(i)
                     end
                 else
                     hideLabel(i)
+                    hideCircle(i)
                 end
             else
                 hideLabel(i)
+                hideCircle(i)
             end
         else
             hideLabel(i)
+            hideCircle(i)
         end
     end
     
     local showCount = math.min(visibleCount, CONFIG.MaxVisible)
     for i = 1, showCount do
         local bestIdx = i
-        local bestDist = State.VisibleItems[i].Distance
+        local bestDist = State.VisibleItems[i].DistanceSq
         for j = i + 1, visibleCount do
-            if State.VisibleItems[j].Distance < bestDist then
-                bestDist = State.VisibleItems[j].Distance
+            if State.VisibleItems[j].DistanceSq < bestDist then
+                bestDist = State.VisibleItems[j].DistanceSq
                 bestIdx = j
             end
         end
@@ -219,14 +322,51 @@ local function updateItemEsp()
     
     for idx = 1, showCount do
         local item = State.VisibleItems[idx]
+        local distance = math.sqrt(item.DistanceSq)
         local label = getLabel(item.Index)
+        local circle = ensureCircleSegments(item.Index)
+        local meta = ITEM_META[State.Items[item.Index].OriginalName]
+        local color = meta and meta.Color or Color3.fromRGB(255, 255, 255)
         
         label.Position = Vector2.new(item.ScreenPos.X, item.ScreenPos.Y - CONFIG.TextYOffset)
-        label.Text = tostring(math.floor(item.Distance)) .. "m"
+        label.Text = tostring(math.floor(distance)) .. "m"
         label.Visible = true
+        
+        local meters = distance * studConv
+        local alpha = math.clamp(1 - (meters / CONFIG.FadeDistance), 0, 1)
+        
+        if alpha > 0 then
+            local segCount = #circle
+            local centerWorld = item.WorldPos - CircleOffset
+            
+            for j = 1, segCount do
+                local off1 = CircleOffsets[j]
+                local off2 = CircleOffsets[(j % segCount) + 1]
+                local w1 = centerWorld + off1
+                local w2 = centerWorld + off2
+                local sp1, on1 = WorldToScreen(w1)
+                local sp2, on2 = WorldToScreen(w2)
+                local seg = circle[j]
+                
+                if on1 and on2 and seg then
+                    seg.From = sp1
+                    seg.To = sp2
+                    seg.Color = color
+                    seg.Transparency = alpha
+                    seg.Visible = true
+                else
+                    if seg then seg.Visible = false end
+                end
+            end
+        else
+            for _, seg in ipairs(circle) do
+                seg.Visible = false
+            end
+        end
     end
     
     for idx = showCount + 1, visibleCount do
+        hideCircle(State.VisibleItems[idx].Index)
         hideLabel(State.VisibleItems[idx].Index)
     end
 end
@@ -238,20 +378,15 @@ local function updateZombieHeads()
     end
     if not infectedContainer then return end
     
-    local targetSize = CONFIG.HeadSize
-    
     for _, zombie in ipairs(infectedContainer:GetChildren()) do
         if zombie:IsA("Model") then
             local humanoid = zombie:FindFirstChild("Humanoid")
             if humanoid and humanoid.Health > 0 then
                 local head = zombie:FindFirstChild("Head")
-                if head and head:IsA("BasePart") then
-                    local currentSize = head.Size
-                    if math.abs(currentSize.X - targetSize) > 0.01 then
-                        pcall(function()
-                            head.Size = Vector3.new(targetSize, targetSize, targetSize)
-                        end)
-                    end
+                if head and head:IsA("BasePart") and head.Size ~= TargetHeadSize then
+                    pcall(function()
+                        head.Size = TargetHeadSize
+                    end)
                 end
             end
         end
@@ -327,6 +462,13 @@ local function updateStaffCheck()
         end
     end
 end
+
+task.spawn(function()
+    while _G.MatchaItemScript_RunId == State.RunId do
+        task.wait(CONFIG.CacheClearInterval)
+        State.RankCache = {}
+    end
+end)
 
 task.spawn(function()
     while _G.MatchaItemScript_RunId == State.RunId do
