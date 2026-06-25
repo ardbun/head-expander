@@ -1,11 +1,12 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local HttpService = game:GetService("HttpService")
-local RunService = game:GetService("RunService")
 
 local CONFIG = {
     MaxVisible = 5,
     MaxDistance = 70,
+    UpdateInterval = 0.018,
+    ScanInterval = 0.5,
     TextSize = 18,
     HeadSize = 5,
     StaffCheckInterval = 30,
@@ -57,7 +58,6 @@ local State = {
     ZombieHeads = {},
     ZombieHealth = {},
     SeenZombies = {},
-    ShownThisFrame = {},
 }
 _G.MatchaItemScript_RunId = State.RunId
 
@@ -300,7 +300,6 @@ local function updateItemEsp()
         return
     end
     
-    table.clear(State.ShownThisFrame)
     table.clear(State.VisibleItems)
     local visibleCount = 0
     
@@ -326,9 +325,21 @@ local function updateItemEsp()
                             ScreenPos = screenPos,
                             WorldPos = pos,
                         }
+                    else
+                        hideLabel(i)
+                        hideCircle(i)
                     end
+                else
+                    hideLabel(i)
+                    hideCircle(i)
                 end
+            else
+                hideLabel(i)
+                hideCircle(i)
             end
+        else
+            hideLabel(i)
+            hideCircle(i)
         end
     end
     
@@ -364,8 +375,6 @@ local function updateItemEsp()
             label.Text = meters .. "m"
         end
         label.Visible = true
-        
-        State.ShownThisFrame[item.Index] = true
         
         local alpha = 1 - distance * FadeMul
         if alpha <= 0 then
@@ -406,11 +415,9 @@ local function updateItemEsp()
         end
     end
     
-    for i = 1, #State.Items do
-        if not State.ShownThisFrame[i] then
-            hideLabel(i)
-            hideCircle(i)
-        end
+    for idx = showCount + 1, visibleCount do
+        hideCircle(State.VisibleItems[idx].Index)
+        hideLabel(State.VisibleItems[idx].Index)
     end
 end
 
@@ -536,13 +543,6 @@ local function updateStaffCheck()
     end
 end
 
--- RenderStepped for ESP drawing
-RunService.RenderStepped:Connect(function()
-    if _G.MatchaItemScript_RunId == State.RunId then
-        updateItemEsp()
-    end
-end)
-
 task.spawn(function()
     while _G.MatchaItemScript_RunId == State.RunId do
         task.wait(CONFIG.CacheClearInterval)
@@ -554,6 +554,13 @@ task.spawn(function()
     while _G.MatchaItemScript_RunId == State.RunId do
         scanItems()
         task.wait(CONFIG.ScanInterval)
+    end
+end)
+
+task.spawn(function()
+    while _G.MatchaItemScript_RunId == State.RunId do
+        updateItemEsp()
+        task.wait(CONFIG.UpdateInterval)
     end
 end)
 
