@@ -580,6 +580,6 @@ end)
 
 if notify then
     pcall(function()
-        notify("Item ESP", "Loaded | Run ID: " .. State.RunId, 4)
+        notify("Loaded", "", 3)
     end)
 end
