@@ -141,7 +141,7 @@ end
 local function createLabel(color)
     local label = Drawing.new("Text")
     label.Size = CONFIG.TextSize
-    label.Font = Drawing.Fonts.UI
+    label.Font = Drawing.Fonts.SystemBold
     label.Center = true
     label.Outline = true
     label.Color = color
