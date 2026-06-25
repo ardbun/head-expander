@@ -84,29 +84,16 @@ end
 _G.MatchaItemScript_Circles = {}
 
 local function getItemType(model)
-    local hasBandages, hasMedkit, hasAmmo = false, false, false
-    
-    for _, child in ipairs(model:GetChildren()) do
-        if child:IsA("MeshPart") then
-            local name = child.Name
-            if name == "Bandages" then
-                hasBandages = true
-            elseif name == "Medkit" then
-                hasMedkit = true
-            elseif name == "AmmoBoxes" then
-                hasAmmo = true
-            end
-        end
-    end
-    
-    if hasBandages then
+    local modelName = model.Name
+
+    if modelName == "Bandages" then
         return "Bandages"
-    elseif hasMedkit then
+    elseif modelName == "Medkit" then
         return "Medkit"
-    elseif hasAmmo then
+    elseif modelName == "ammo" then
         return "AmmoBoxes"
     end
-    
+
     return nil
 end
 
