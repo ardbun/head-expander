@@ -23,17 +23,18 @@ local CONFIG = {
 }
 
 local ITEM_META = {
-    Medkit = { Color = Color3.fromRGB(180, 0, 0), Label = "medkit" },
-    Bandages = { Color = Color3.fromRGB(222, 204, 168), Label = "bandages" },
-    AmmoBoxes = { Color = Color3.fromRGB(0, 180, 0), Label = "ammo" },
+    Medkit = { Color = Color3.fromRGB(180, 0, 0) },
+    Bandages = { Color = Color3.fromRGB(222, 204, 168) },
+    AmmoBoxes = { Color = Color3.fromRGB(0, 180, 0) },
 }
 
--- Priority order for item detection
 local ITEM_PRIORITY = {
     "Bandages",
     "Medkit",
     "AmmoBoxes",
 }
+
+local WHITE = Color3.new(1, 1, 1)
 
 local CircleOffsets = {}
 for i = 1, CONFIG.CircleSegments do
@@ -47,6 +48,7 @@ end
 
 local CircleOffset = Vector3.new(0, CONFIG.CircleYOffset, 0)
 local TargetHeadSize = Vector3.new(CONFIG.HeadSize, CONFIG.HeadSize, CONFIG.HeadSize)
+local FadeMul = (1 / 3.5714285714) / CONFIG.FadeDistance
 
 local State = {
     RunId = ((_G.MatchaItemScript_RunId or 0) + 1),
@@ -83,11 +85,20 @@ end
 _G.MatchaItemScript_Circles = {}
 
 local function getItemType(model)
-    for _, itemName in ipairs(ITEM_PRIORITY) do
-        if model:FindFirstChild(itemName) then
-            return itemName
+    local found = {}
+    
+    for _, child in ipairs(model:GetChildren()) do
+        if child:IsA("MeshPart") and ITEM_META[child.Name] then
+            found[child.Name] = true
         end
     end
+    
+    for _, name in ipairs(ITEM_PRIORITY) do
+        if found[name] then
+            return name
+        end
+    end
+    
     return nil
 end
 
@@ -127,22 +138,25 @@ local function createLabel(color)
     label.Outline = true
     label.Color = color
     label.Visible = false
+    label._last = -1
     table.insert(_G.MatchaItemScript_Labels, label)
     return label
 end
 
 local function getLabel(index)
-    if not State.Labels[index] then
-        local color = Color3.fromRGB(255, 255, 255)
-        local item = State.Items[index]
-        if item then
-            local meta = ITEM_META[item.OriginalName]
-            if meta then
-                color = meta.Color
-            end
-        end
-        State.Labels[index] = createLabel(color)
+    local item = State.Items[index]
+    local color = WHITE
+    
+    if item and item.Color then
+        color = item.Color
     end
+    
+    if not State.Labels[index] then
+        State.Labels[index] = createLabel(color)
+    else
+        State.Labels[index].Color = color
+    end
+    
     return State.Labels[index]
 end
 
@@ -228,14 +242,14 @@ local function scanItems()
     if itemsContainer then
         itemsContainer = itemsContainer:FindFirstChild("Items")
     end
-    if not itemsContainer then 
-        State.Items = {}
+    if not itemsContainer then
+        table.clear(State.Items)
         trimLabels(0)
         trimCircles(0)
-        return 
+        return
     end
     
-    local newItems = {}
+    table.clear(State.Items)
     
     for _, model in ipairs(itemsContainer:GetChildren()) do
         if model:IsA("Model") then
@@ -244,22 +258,29 @@ local function scanItems()
             if matchedName then
                 local boxPart = model:FindFirstChild("Box")
                 if boxPart and boxPart:IsA("BasePart") then
-                    table.insert(newItems, {
+                    State.Items[#State.Items + 1] = {
                         Part = boxPart,
                         OriginalName = matchedName,
+                        Color = ITEM_META[matchedName].Color,
                     })
                 end
             end
         end
     end
     
-    State.Items = newItems
     trimLabels(#State.Items)
     trimCircles(#State.Items)
 end
 
 local function updateItemEsp()
     if _G.MatchaItemScript_RunId ~= State.RunId then return end
+    
+    local cam = Workspace.CurrentCamera
+    if not cam then
+        hideLabels()
+        hideCircles()
+        return
+    end
     
     local charPos = getLocalPosition()
     if not charPos then
@@ -268,13 +289,13 @@ local function updateItemEsp()
         return
     end
     
-    State.VisibleItems = {}
+    table.clear(State.VisibleItems)
     local visibleCount = 0
     local maxDistSq = CONFIG.MaxDistance * CONFIG.MaxDistance
     
     for i, data in ipairs(State.Items) do
         local part = data.Part
-        if part and part.Parent and part:IsA("BasePart") then
+        if part and part.Parent then
             local pos = part.Position
             
             if pos then
@@ -292,7 +313,7 @@ local function updateItemEsp()
                             Index = i,
                             DistanceSq = distSq,
                             ScreenPos = screenPos,
-                            WorldPos = pos
+                            WorldPos = pos,
                         }
                     else
                         hideLabel(i)
@@ -329,18 +350,22 @@ local function updateItemEsp()
     
     for idx = 1, showCount do
         local item = State.VisibleItems[idx]
-        local distance = math.sqrt(item.DistanceSq)
+        local distanceSq = item.DistanceSq
+        local distance = math.sqrt(distanceSq)
         local label = getLabel(item.Index)
         local circle = ensureCircleSegments(item.Index)
-        local meta = ITEM_META[State.Items[item.Index].OriginalName]
-        local color = meta and meta.Color or Color3.fromRGB(255, 255, 255)
+        local color = State.Items[item.Index].Color or WHITE
         
         label.Position = Vector2.new(item.ScreenPos.X, item.ScreenPos.Y - CONFIG.TextYOffset)
-        label.Text = tostring(math.floor(distance)) .. "m"
+        
+        local meters = math.floor(distance)
+        if label._last ~= meters then
+            label._last = meters
+            label.Text = meters .. "m"
+        end
         label.Visible = true
         
-        local meters = distance * studConv
-        local alpha = math.clamp(1 - (meters / CONFIG.FadeDistance), 0, 1)
+        local alpha = math.clamp(1 - distance * FadeMul, 0, 1)
         
         if alpha > 0 then
             local segCount = #circle
@@ -351,6 +376,7 @@ local function updateItemEsp()
                 local off2 = CircleOffsets[(j % segCount) + 1]
                 local w1 = centerWorld + off1
                 local w2 = centerWorld + off2
+                
                 local sp1, on1 = WorldToScreen(w1)
                 local sp2, on2 = WorldToScreen(w2)
                 local seg = circle[j]
@@ -486,7 +512,12 @@ end)
 
 task.spawn(function()
     while _G.MatchaItemScript_RunId == State.RunId do
-        updateItemEsp()
+        local ok, err = pcall(updateItemEsp)
+        if not ok then
+            hideLabels()
+            hideCircles()
+            warn("[ItemESP] updateItemEsp error: " .. tostring(err))
+        end
         task.wait(CONFIG.UpdateInterval)
     end
 end)
