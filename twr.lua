@@ -28,6 +28,13 @@ local ITEM_META = {
     AmmoBoxes = { Color = Color3.fromRGB(0, 180, 0), Label = "ammo" },
 }
 
+-- Priority order for item detection
+local ITEM_PRIORITY = {
+    "Bandages",
+    "Medkit",
+    "AmmoBoxes",
+}
+
 local CircleOffsets = {}
 for i = 1, CONFIG.CircleSegments do
     local a = (i - 1) * (2 * math.pi / CONFIG.CircleSegments)
@@ -74,6 +81,15 @@ if _G.MatchaItemScript_Circles then
     end
 end
 _G.MatchaItemScript_Circles = {}
+
+local function getItemType(model)
+    for _, itemName in ipairs(ITEM_PRIORITY) do
+        if model:FindFirstChild(itemName) then
+            return itemName
+        end
+    end
+    return nil
+end
 
 local function newLineSegment()
     local ok, l = pcall(function() return Drawing.new("Line") end)
@@ -223,16 +239,7 @@ local function scanItems()
     
     for _, model in ipairs(itemsContainer:GetChildren()) do
         if model:IsA("Model") then
-            local matchedName = nil
-            
-            for _, child in ipairs(model:GetChildren()) do
-                if child:IsA("MeshPart") and child.Name ~= "Box" then
-                    if ITEM_META[child.Name] then
-                        matchedName = child.Name
-                        break
-                    end
-                end
-            end
+            local matchedName = getItemType(model)
             
             if matchedName then
                 local boxPart = model:FindFirstChild("Box")
