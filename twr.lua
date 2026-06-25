@@ -240,12 +240,16 @@ local function scanItems()
     end
     if not itemsContainer then
         table.clear(State.Items)
+        hideLabels()
+        hideCircles()
         trimLabels(0)
         trimCircles(0)
         return
     end
     
     table.clear(State.Items)
+    hideLabels()
+    hideCircles()
     
     for _, model in ipairs(itemsContainer:GetChildren()) do
         if model:IsA("Model") then
@@ -284,6 +288,13 @@ local function updateItemEsp()
     end
     
     table.clear(State.VisibleItems)
+    
+    -- Clean slate every frame - hide everything first
+    for i = 1, #State.Items do
+        hideLabel(i)
+        hideCircle(i)
+    end
+    
     local visibleCount = 0
     
     for i, data in ipairs(State.Items) do
@@ -308,21 +319,9 @@ local function updateItemEsp()
                             ScreenPos = screenPos,
                             WorldPos = pos,
                         }
-                    else
-                        hideLabel(i)
-                        hideCircle(i)
                     end
-                else
-                    hideLabel(i)
-                    hideCircle(i)
                 end
-            else
-                hideLabel(i)
-                hideCircle(i)
             end
-        else
-            hideLabel(i)
-            hideCircle(i)
         end
     end
     
@@ -396,11 +395,6 @@ local function updateItemEsp()
                 end
             end
         end
-    end
-    
-    for idx = showCount + 1, visibleCount do
-        hideCircle(State.VisibleItems[idx].Index)
-        hideLabel(State.VisibleItems[idx].Index)
     end
 end
 
