@@ -1,12 +1,11 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
 
 local CONFIG = {
     MaxVisible = 5,
     MaxDistance = 70,
-    UpdateInterval = 0.022,
-    ScanInterval = 0.5,
     TextSize = 18,
     HeadSize = 5,
     StaffCheckInterval = 30,
@@ -58,6 +57,7 @@ local State = {
     ZombieHeads = {},
     ZombieHealth = {},
     SeenZombies = {},
+    ShownThisFrame = {},
 }
 _G.MatchaItemScript_RunId = State.RunId
 
@@ -84,14 +84,28 @@ end
 _G.MatchaItemScript_Circles = {}
 
 local function getItemType(model)
-    local modelName = model.Name
+    local modelName = string.lower(model.Name)
 
-    if modelName == "Bandages" then
+    if modelName == "bandages" then
         return "Bandages"
-    elseif modelName == "Medkit" then
+    elseif modelName == "medkit" then
         return "Medkit"
     elseif modelName == "ammo" then
         return "AmmoBoxes"
+    end
+
+    for _, child in ipairs(model:GetChildren()) do
+        if child:IsA("MeshPart") then
+            local n = string.lower(child.Name)
+
+            if n == "medkit" then
+                return "Medkit"
+            elseif n == "bandages" then
+                return "Bandages"
+            elseif n == "ammoboxes" then
+                return "AmmoBoxes"
+            end
+        end
     end
 
     return nil
@@ -239,7 +253,7 @@ local function scanItems()
         itemsContainer = itemsContainer:FindFirstChild("Items")
     end
     if not itemsContainer then
-        table.clear(State.Items)
+        State.Items = {}
         hideLabels()
         hideCircles()
         trimLabels(0)
@@ -247,9 +261,7 @@ local function scanItems()
         return
     end
     
-    table.clear(State.Items)
-    hideLabels()
-    hideCircles()
+    local newItems = {}
     
     for _, model in ipairs(itemsContainer:GetChildren()) do
         if model:IsA("Model") then
@@ -258,7 +270,7 @@ local function scanItems()
             if matchedName then
                 local boxPart = model:FindFirstChild("Box")
                 if boxPart and boxPart:IsA("BasePart") then
-                    table.insert(State.Items, {
+                    table.insert(newItems, {
                         Part = boxPart,
                         Meta = ITEM_META[matchedName],
                     })
@@ -267,6 +279,7 @@ local function scanItems()
         end
     end
     
+    State.Items = newItems
     trimLabels(#State.Items)
     trimCircles(#State.Items)
 end
@@ -287,14 +300,8 @@ local function updateItemEsp()
         return
     end
     
+    table.clear(State.ShownThisFrame)
     table.clear(State.VisibleItems)
-    
-    -- Clean slate every frame - hide everything first
-    for i = 1, #State.Items do
-        hideLabel(i)
-        hideCircle(i)
-    end
-    
     local visibleCount = 0
     
     for i, data in ipairs(State.Items) do
@@ -358,6 +365,8 @@ local function updateItemEsp()
         end
         label.Visible = true
         
+        State.ShownThisFrame[item.Index] = true
+        
         local alpha = 1 - distance * FadeMul
         if alpha <= 0 then
             for _, seg in ipairs(circle) do
@@ -394,6 +403,13 @@ local function updateItemEsp()
                     if seg then seg.Visible = false end
                 end
             end
+        end
+    end
+    
+    for i = 1, #State.Items do
+        if not State.ShownThisFrame[i] then
+            hideLabel(i)
+            hideCircle(i)
         end
     end
 end
@@ -520,6 +536,13 @@ local function updateStaffCheck()
     end
 end
 
+-- RenderStepped for ESP drawing
+RunService.RenderStepped:Connect(function()
+    if _G.MatchaItemScript_RunId == State.RunId then
+        updateItemEsp()
+    end
+end)
+
 task.spawn(function()
     while _G.MatchaItemScript_RunId == State.RunId do
         task.wait(CONFIG.CacheClearInterval)
@@ -531,13 +554,6 @@ task.spawn(function()
     while _G.MatchaItemScript_RunId == State.RunId do
         scanItems()
         task.wait(CONFIG.ScanInterval)
-    end
-end)
-
-task.spawn(function()
-    while _G.MatchaItemScript_RunId == State.RunId do
-        updateItemEsp()
-        task.wait(CONFIG.UpdateInterval)
     end
 end)
 
