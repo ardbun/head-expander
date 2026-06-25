@@ -28,13 +28,8 @@ local ITEM_META = {
     AmmoBoxes = { Color = Color3.fromRGB(0, 180, 0) },
 }
 
-local ITEM_PRIORITY = {
-    "Bandages",
-    "Medkit",
-    "AmmoBoxes",
-}
-
 local WHITE = Color3.new(1, 1, 1)
+local MaxDistanceSq = CONFIG.MaxDistance * CONFIG.MaxDistance
 
 local CircleOffsets = {}
 for i = 1, CONFIG.CircleSegments do
@@ -54,15 +49,19 @@ local State = {
     RunId = ((_G.MatchaItemScript_RunId or 0) + 1),
     Items = {},
     Labels = {},
+    LabelCache = {},
     Circles = {},
+    CircleColors = {},
     VisibleItems = {},
     RankCache = {},
     LastStaffString = "",
+    ZombieHeads = {},
+    ZombieHealth = {},
+    SeenZombies = {},
 }
 _G.MatchaItemScript_RunId = State.RunId
 
 local LocalPlayer = Players.LocalPlayer
-local studConv = 1 / 3.5714285714
 
 if _G.MatchaItemScript_Labels then
     for _, label in ipairs(_G.MatchaItemScript_Labels) do
@@ -85,18 +84,27 @@ end
 _G.MatchaItemScript_Circles = {}
 
 local function getItemType(model)
-    local found = {}
+    local hasBandages, hasMedkit, hasAmmo = false, false, false
     
     for _, child in ipairs(model:GetChildren()) do
-        if child:IsA("MeshPart") and ITEM_META[child.Name] then
-            found[child.Name] = true
+        if child:IsA("MeshPart") then
+            local name = child.Name
+            if name == "Bandages" then
+                hasBandages = true
+            elseif name == "Medkit" then
+                hasMedkit = true
+            elseif name == "AmmoBoxes" then
+                hasAmmo = true
+            end
         end
     end
     
-    for _, name in ipairs(ITEM_PRIORITY) do
-        if found[name] then
-            return name
-        end
+    if hasBandages then
+        return "Bandages"
+    elseif hasMedkit then
+        return "Medkit"
+    elseif hasAmmo then
+        return "AmmoBoxes"
     end
     
     return nil
@@ -138,31 +146,29 @@ local function createLabel(color)
     label.Outline = true
     label.Color = color
     label.Visible = false
-    label._last = -1
     table.insert(_G.MatchaItemScript_Labels, label)
     return label
 end
 
 local function getLabel(index)
     local item = State.Items[index]
-    local color = WHITE
+    local color = item.Meta.Color
     
-    if item and item.Color then
-        color = item.Color
+    local label = State.Labels[index]
+    if not label then
+        label = createLabel(color)
+        State.Labels[index] = label
+    elseif label.Color ~= color then
+        label.Color = color
     end
     
-    if not State.Labels[index] then
-        State.Labels[index] = createLabel(color)
-    else
-        State.Labels[index].Color = color
-    end
-    
-    return State.Labels[index]
+    return label
 end
 
 local function ensureCircleSegments(index)
     if not State.Circles[index] then
         State.Circles[index] = createCircleSegments(CONFIG.CircleSegments)
+        State.CircleColors[index] = {}
         for _, seg in ipairs(State.Circles[index]) do
             table.insert(_G.MatchaItemScript_Circles, seg)
         end
@@ -213,6 +219,7 @@ local function trimLabels(newCount)
     end
     while #State.Labels > newCount do
         table.remove(State.Labels)
+        table.remove(State.LabelCache)
     end
 end
 
@@ -228,10 +235,12 @@ local function trimCircles(newCount)
                 end
             end)
             State.Circles[i] = nil
+            State.CircleColors[i] = nil
         end
     end
     while #State.Circles > newCount do
         table.remove(State.Circles)
+        table.remove(State.CircleColors)
     end
 end
 
@@ -258,11 +267,10 @@ local function scanItems()
             if matchedName then
                 local boxPart = model:FindFirstChild("Box")
                 if boxPart and boxPart:IsA("BasePart") then
-                    State.Items[#State.Items + 1] = {
+                    table.insert(State.Items, {
                         Part = boxPart,
-                        OriginalName = matchedName,
-                        Color = ITEM_META[matchedName].Color,
-                    }
+                        Meta = ITEM_META[matchedName],
+                    })
                 end
             end
         end
@@ -275,8 +283,7 @@ end
 local function updateItemEsp()
     if _G.MatchaItemScript_RunId ~= State.RunId then return end
     
-    local cam = Workspace.CurrentCamera
-    if not cam then
+    if not Workspace.CurrentCamera then
         hideLabels()
         hideCircles()
         return
@@ -291,7 +298,6 @@ local function updateItemEsp()
     
     table.clear(State.VisibleItems)
     local visibleCount = 0
-    local maxDistSq = CONFIG.MaxDistance * CONFIG.MaxDistance
     
     for i, data in ipairs(State.Items) do
         local part = data.Part
@@ -304,7 +310,7 @@ local function updateItemEsp()
                 local dz = pos.Z - charPos.Z
                 local distSq = dx*dx + dy*dy + dz*dz
                 
-                if distSq <= maxDistSq then
+                if distSq <= MaxDistanceSq then
                     local screenPos, onScreen = WorldToScreen(pos)
                     
                     if onScreen then
@@ -354,20 +360,26 @@ local function updateItemEsp()
         local distance = math.sqrt(distanceSq)
         local label = getLabel(item.Index)
         local circle = ensureCircleSegments(item.Index)
-        local color = State.Items[item.Index].Color or WHITE
+        local color = State.Items[item.Index].Meta.Color
+        local colorCache = State.CircleColors[item.Index]
         
         label.Position = Vector2.new(item.ScreenPos.X, item.ScreenPos.Y - CONFIG.TextYOffset)
         
         local meters = math.floor(distance)
-        if label._last ~= meters then
-            label._last = meters
+        if State.LabelCache[item.Index] ~= meters then
+            State.LabelCache[item.Index] = meters
             label.Text = meters .. "m"
         end
         label.Visible = true
         
-        local alpha = math.clamp(1 - distance * FadeMul, 0, 1)
-        
-        if alpha > 0 then
+        local alpha = 1 - distance * FadeMul
+        if alpha <= 0 then
+            for _, seg in ipairs(circle) do
+                seg.Visible = false
+            end
+        else
+            if alpha > 1 then alpha = 1 end
+            
             local segCount = #circle
             local centerWorld = item.WorldPos - CircleOffset
             
@@ -384,16 +396,17 @@ local function updateItemEsp()
                 if on1 and on2 and seg then
                     seg.From = sp1
                     seg.To = sp2
-                    seg.Color = color
+                    
+                    if colorCache[j] ~= color then
+                        colorCache[j] = color
+                        seg.Color = color
+                    end
+                    
                     seg.Transparency = alpha
                     seg.Visible = true
                 else
                     if seg then seg.Visible = false end
                 end
-            end
-        else
-            for _, seg in ipairs(circle) do
-                seg.Visible = false
             end
         end
     end
@@ -409,18 +422,48 @@ local function updateZombieHeads()
     if infectedContainer then
         infectedContainer = infectedContainer:FindFirstChild("Infected")
     end
-    if not infectedContainer then return end
+    if not infectedContainer then
+        table.clear(State.ZombieHeads)
+        table.clear(State.ZombieHealth)
+        return
+    end
+    
+    local seen = State.SeenZombies
+    table.clear(seen)
     
     for _, zombie in ipairs(infectedContainer:GetChildren()) do
         if zombie:IsA("Model") then
-            local humanoid = zombie:FindFirstChild("Humanoid")
-            if humanoid and humanoid.Health > 0 then
+            local addr = zombie.Address or tostring(zombie)
+            seen[addr] = true
+            
+            if not State.ZombieHeads[addr] then
+                local humanoid = zombie:FindFirstChild("Humanoid")
                 local head = zombie:FindFirstChild("Head")
-                if head and head:IsA("BasePart") and head.Size ~= TargetHeadSize then
-                    pcall(function()
-                        head.Size = TargetHeadSize
-                    end)
+                if humanoid and humanoid.Health > 0 and head and head:IsA("BasePart") then
+                    State.ZombieHeads[addr] = head
+                    State.ZombieHealth[addr] = humanoid
                 end
+            end
+        end
+    end
+    
+    for addr in pairs(State.ZombieHeads) do
+        if not seen[addr] then
+            State.ZombieHeads[addr] = nil
+            State.ZombieHealth[addr] = nil
+        end
+    end
+    
+    for addr, head in pairs(State.ZombieHeads) do
+        if head and head.Parent and head.Size ~= TargetHeadSize then
+            local health = State.ZombieHealth[addr]
+            if health and health.Health > 0 then
+                pcall(function()
+                    head.Size = TargetHeadSize
+                end)
+            else
+                State.ZombieHeads[addr] = nil
+                State.ZombieHealth[addr] = nil
             end
         end
     end
@@ -499,7 +542,7 @@ end
 task.spawn(function()
     while _G.MatchaItemScript_RunId == State.RunId do
         task.wait(CONFIG.CacheClearInterval)
-        State.RankCache = {}
+        table.clear(State.RankCache)
     end
 end)
 
@@ -512,12 +555,7 @@ end)
 
 task.spawn(function()
     while _G.MatchaItemScript_RunId == State.RunId do
-        local ok, err = pcall(updateItemEsp)
-        if not ok then
-            hideLabels()
-            hideCircles()
-            warn("[ItemESP] updateItemEsp error: " .. tostring(err))
-        end
+        updateItemEsp()
         task.wait(CONFIG.UpdateInterval)
     end
 end)
