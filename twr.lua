@@ -262,7 +262,7 @@ local function scanItems()
                         Part = boxPart,
                         OriginalName = matchedName,
                         Color = ITEM_META[matchedName].Color,
-                    })
+                    }
                 end
             end
         end
