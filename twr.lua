@@ -52,6 +52,37 @@ end
 local function hideLabel(index) hideDrawing(State.Labels[index]) end
 local function hideCircle(index) hideList(State.Circles[index]) end
 
+local function isValidItemPart(part)
+    if not part or not part.Parent then return false end
+    if not part:IsDescendantOf(Workspace) then return false end
+
+    local ok, pos = pcall(function() return part.Position end)
+    return ok and pos ~= nil
+end
+
+local function getPartPosition(part)
+    local ok, pos = pcall(function() return part.Position end)
+    if ok then return pos end
+    return nil
+end
+
+local function removeItemEntry(index)
+    removeDrawing(State.Labels[index])
+
+    local circle = State.Circles[index]
+    if circle then
+        for _, seg in ipairs(circle) do
+            removeDrawing(seg)
+        end
+    end
+
+    table.remove(State.Items, index)
+    table.remove(State.Labels, index)
+    table.remove(State.LabelCache, index)
+    table.remove(State.Circles, index)
+    table.remove(State.CircleColors, index)
+end
+
 local function trim(list, cache, newCount, remover)
     for i = #list, newCount + 1, -1 do
         remover(list[i])
@@ -175,31 +206,40 @@ local function updateItemEsp()
     if not charPos then hideLabels(); hideCircles(); return end
     
     table.clear(State.VisibleItems)
+
+    for i = #State.Items, 1, -1 do
+        local data = State.Items[i]
+        local part = data and data.Part
+        if not isValidItemPart(part) then
+            removeItemEntry(i)
+        end
+    end
+
     local visibleCount = 0
     
     for i, data in ipairs(State.Items) do
         local part = data.Part
-        if part and part.Parent then
-            local pos = part.Position
-            if pos then
-                local dx, dy, dz = pos.X - charPos.X, pos.Y - charPos.Y, pos.Z - charPos.Z
-                local distSq = dx*dx + dy*dy + dz*dz
-                if distSq <= MaxDistanceSq then
-                    local screenPos, onScreen = WorldToScreen(pos)
-                    if onScreen then
-                        visibleCount = visibleCount + 1
-                        State.VisibleItems[visibleCount] = { Index = i, DistanceSq = distSq, ScreenPos = screenPos, WorldPos = pos }
-                    else
-                        hideLabel(i); hideCircle(i)
-                    end
+        local pos = getPartPosition(part)
+        if pos then
+            local dx, dy, dz = pos.X - charPos.X, pos.Y - charPos.Y, pos.Z - charPos.Z
+            local distSq = dx*dx + dy*dy + dz*dz
+            if distSq <= MaxDistanceSq then
+                local screenPos, onScreen = WorldToScreen(pos)
+                if onScreen then
+                    visibleCount = visibleCount + 1
+                    State.VisibleItems[visibleCount] = { Index = i, DistanceSq = distSq, ScreenPos = screenPos, WorldPos = pos }
                 else
                     hideLabel(i); hideCircle(i)
+                    State.LabelCache[i] = nil
                 end
             else
                 hideLabel(i); hideCircle(i)
+                State.LabelCache[i] = nil
             end
         else
             hideLabel(i); hideCircle(i)
+            State.LabelCache[i] = nil
+            if data then data.Part = nil end
         end
     end
     
