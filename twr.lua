@@ -346,6 +346,59 @@ local function updateZombieHeads()
     end
 end
 
+local UserIdOffset = nil
+
+local function loadUserIdOffset()
+    if UserIdOffset then return UserIdOffset end
+
+    local urls = {
+        "https://imtheo.lol/Offsets/Offsets.json",
+        "https://api.codetabs.com/v1/proxy?quest=https://imtheo.lol/Offsets/Offsets.json",
+        "https://imtheo.lol/Offsets/OffsetsHex.json",
+    }
+
+    local data, body
+    for _, url in ipairs(urls) do
+        local ok, result = pcall(httpget, url)
+        if ok and result and result ~= "" then
+            body = result
+            local okJson, decoded = pcall(function() return HttpService:JSONDecode(result) end)
+            if okJson then data = decoded end
+            break
+        end
+    end
+
+    if data then
+        if data.Player and data.Player.UserId then
+            UserIdOffset = tonumber(data.Player.UserId)
+        elseif data.Offsets and data.Offsets.Player and data.Offsets.Player.UserId then
+            local v = data.Offsets.Player.UserId
+            UserIdOffset = type(v) == "string" and tonumber(v, 16) or tonumber(v)
+        end
+    end
+
+    if not UserIdOffset and body then
+        local dec = body:match('"Player"%s*:%s*{.-"UserId"%s*:%s*(%d+)')
+        if dec then
+            UserIdOffset = tonumber(dec)
+        else
+            local hex = body:match('"Player"%s*:%s*{.-"UserId"%s*:%s*"0x([%da-fA-F]+)"')
+            if hex then UserIdOffset = tonumber(hex, 16) end
+        end
+    end
+
+    return UserIdOffset
+end
+
+local function getUserId(player)
+    local offset = loadUserIdOffset()
+    if not offset or not player or not player.Address then return nil end
+
+    local ok, userId = pcall(memory_read, "uintptr_t", player.Address + offset)
+    if ok and userId and userId ~= 0 then return userId end
+    return nil
+end
+
 local function getGroupRank(userId)
     if State.RankCache[userId] then
         return State.RankCache[userId].rank, State.RankCache[userId].role
@@ -374,12 +427,14 @@ local function getGroupRank(userId)
     return 0, "Unknown"
 end
 
+loadUserIdOffset()
+
 local function updateStaffCheck()
     if _G.MatchaItemScript_RunId ~= State.RunId then return end
     
     local staffNames = {}
     for _, player in ipairs(Players:GetPlayers()) do
-        local userId = player.UserId
+        local userId = getUserId(player)
         if userId then
             local rank, roleName = getGroupRank(userId)
             if rank >= CONFIG.MinStaffRank then
