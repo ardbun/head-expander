@@ -61,10 +61,6 @@ local function isValidItemPart(part)
 end
 
 local function getPartPosition(part)
-    local ok, pos = pcall(function() return part.Position end)
-    if ok then return pos end
-    return nil
-end
 
 local function removeItemEntry(index)
     removeDrawing(State.Labels[index])
@@ -390,14 +386,7 @@ local function loadUserIdOffset()
     return UserIdOffset
 end
 
-local function getUserId(player)
-    local offset = loadUserIdOffset()
-    if not offset or not player or not player.Address then return nil end
-
-    local ok, userId = pcall(memory_read, "uintptr_t", player.Address + offset)
-    if ok and userId and userId ~= 0 then return userId end
-    return nil
-end
+local function getUserId(p) local o=loadUserIdOffset() if not o or not p or not p.Address then return nil end local ok,u=pcall(memory_read,"uintptr_t",p.Address+o) return (ok and u and u~=0) and u or nil end
 
 local function getGroupRank(userId)
     if State.RankCache[userId] then
